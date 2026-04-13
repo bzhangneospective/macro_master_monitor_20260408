@@ -6,37 +6,42 @@ import plotly.graph_objects as go
 import yfinance as yf
 import pandas_datareader.data as web
 import datetime
+import os
+import pickle
 
 # ==========================================
 # 1. 页面全局配置 (全屏宽幅模式)
 # ==========================================
 st.set_page_config(page_title="Macro Master Monitor", layout="wide")
 
+# 本地数据仓库文件名
+DATA_FILE = "macro_database.pkl"
+
 # ==========================================
-# 2. 全自动多源数据抓取引擎 (并发抓取 40+ 核心指标)
+# 2. 数据入库引擎 (只在点击按钮时触发)
 # ==========================================
-@st.cache_data(ttl=3600)
-def fetch_all_data():
+def fetch_and_save_data():
     try:
         end_date = datetime.date.today()
         start_date = end_date - datetime.timedelta(days=365 * 10)
 
-        # 1. 雅虎财经 (Yahoo Finance)
+        # 1. 雅虎财经 (分批抗压处理，防止大面积丢包)
         yf_tickers = [
             '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
             'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
             'CNH=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT'
         ]
+        # 强制抓取并前后填充空值，解决由于节假日导致的线条断裂
         yf_data = yf.download(yf_tickers, period="10y", progress=False)['Close']
         if isinstance(yf_data, pd.DataFrame):
-            yf_data = yf_data.ffill()
+            yf_data = yf_data.ffill().bfill()
 
         # 2. 美联储数据库 (FRED)
         fred_tickers = [
             'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
             'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2'
         ]
-        fred_data = web.DataReader(fred_tickers, 'fred', start_date, end_date).ffill()
+        fred_data = web.DataReader(fred_tickers, 'fred', start_date, end_date).ffill().bfill()
 
         # 3. 占位模拟器 (中国期货与 EIA)
         dates = pd.date_range(start=start_date, end=end_date, freq='B')
@@ -46,18 +51,24 @@ def fetch_all_data():
         for item in mock_items:
             mock_data[item] = 100 + np.cumsum(np.random.randn(len(dates)))
         
-        return {"status": "✅ 全球底层数据通道连接成功 (Yahoo & FRED)", "yf": yf_data, "fred": fred_data, "mock": mock_data}
+        # 构建数据库字典
+        db = {"status": "✅ 数据库已同步至最新", "yf": yf_data, "fred": fred_data, "mock": mock_data}
+        
+        # 核心：将数据永久写入本地硬盘文件
+        with open(DATA_FILE, 'wb') as f:
+            pickle.dump(db, f)
+            
+        return db
     except Exception as e:
         return {"status": f"❌ 数据拉取失败: {e}"}
 
 # ==========================================
-# 3. 核心绘图工厂 (终极防撞击护盾)
+# 3. 核心绘图工厂 (带终极容错与防崩溃机制)
 # ==========================================
 def draw_chart(series, title, color):
-    # 如果接口根本没返回这个字段，或者全是空值
     if series is None or series.dropna().empty or len(series.dropna()) < 2:
         fig = go.Figure()
-        fig.add_annotation(text="暂无有效数据 (No Data from API)", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="gray", size=14))
+        fig.add_annotation(text="暂无有效数据", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="gray", size=14))
         fig.update_layout(title=dict(text=title, font=dict(size=14)), height=250, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
         return fig
 
@@ -79,25 +90,42 @@ def render_grid(charts_dict, cols=3):
             st.plotly_chart(draw_chart(series, title, color), use_container_width=True)
 
 # ==========================================
-# 4. 侧边栏与数据加载
+# 4. 侧边栏：数据仓库管理中心
 # ==========================================
-with st.spinner('📡 正在深度回溯 4 大宏观板块全部底层数据...'):
-    db = fetch_all_data()
-
 with st.sidebar:
-    st.header("⚙️ 宏观系统引擎状态")
-    if "✅" in db.get("status", ""):
-        st.success(db["status"])
+    st.header("🗄️ 数据库管理 (Ops 专属)")
+    st.markdown("为了保证老板查看时100%稳定，系统已切换为本地数据读取模式。")
+    
+    # 强制更新按钮
+    if st.button("🔄 拉取外网最新数据并入库", type="primary"):
+        with st.spinner("正在向华尔街服务器全量拉取数据，请耐心等待(约15秒)..."):
+            fetch_and_save_data()
+            st.success("🎉 数据更新完成并已落盘保存！页面将使用最新数据。")
+            st.rerun() # 刷新页面
+
+    st.markdown("---")
+    st.header("⚙️ 引擎当前状态")
+    
+    # 尝试从本地硬盘加载数据
+    db = None
+    if os.path.exists(DATA_FILE):
+        file_time = datetime.datetime.fromtimestamp(os.path.getmtime(DATA_FILE)).strftime('%Y-%m-%d %H:%M:%S')
+        st.success("✅ 已连接本地高速数据仓库")
+        st.caption(f"💾 上次更新时间: \n{file_time}")
+        with open(DATA_FILE, 'rb') as f:
+            db = pickle.load(f)
     else:
-        st.error(db.get("status", "网络错误"))
+        st.error("⚠️ 硬盘中暂无数据缓存！")
+        st.info("请点击上方红色的【拉取最新数据并入库】按钮初始化数据库。")
 
 # ==========================================
 # 5. 顶层选项卡：完全映射老板的 4 份 PDF
 # ==========================================
-st.title("🏛️ 宏观资产全景监控终端 (Full-Data Master)")
+st.title("🏛️ 宏观资产全景监控终端 (Offline Stable Mode)")
 st.markdown("---")
 
-if "✅" in db.get("status", ""):
+# 只有当本地数据库文件存在时，才渲染图表
+if db is not None and "yf" in db:
     yf_df = db['yf']
     fr_df = db['fred']
     mk_df = db['mock']
