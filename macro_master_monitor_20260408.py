@@ -49,13 +49,25 @@ def fetch_all_data():
         return {"status": f"❌ 数据拉取失败: {e}"}
 
 # ==========================================
-# 3. 核心绘图工厂 (批量渲染 50+ 图表)
+# 3. 核心绘图工厂 (带终极容错与防崩溃机制)
 # ==========================================
 def draw_chart(series, title, color):
-    if series is None or series.empty:
+    # 1. 基础拦截
+    if series is None:
         return go.Figure()
-    series = series.dropna()
-    fig = px.line(x=series.index, y=series.values)
+        
+    # 2. 剔除脏数据和空值
+    clean_series = series.dropna()
+    
+    # 3. 终极容错：如果剔除空值后，连 1 个有效数据都没了，画一个空图占位
+    if clean_series.empty or len(clean_series) < 2:
+        fig = go.Figure()
+        fig.add_annotation(text="暂无有效数据 (No Data from API)", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="gray", size=14))
+        fig.update_layout(title=dict(text=title, font=dict(size=14)), height=250, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
+        return fig
+
+    # 4. 正常绘制图表
+    fig = px.line(x=clean_series.index, y=clean_series.values)
     fig.update_traces(line_color=color, line_width=1.5)
     fig.update_layout(
         title=dict(text=title, font=dict(size=14)), margin=dict(l=0, r=0, t=40, b=0), height=250,
