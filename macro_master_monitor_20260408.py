@@ -31,7 +31,6 @@ def fetch_and_save_data():
             'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
             'CNH=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT'
         ]
-        # 强制抓取并前后填充空值，解决由于节假日导致的线条断裂
         yf_data = yf.download(yf_tickers, period="10y", progress=False)['Close']
         if isinstance(yf_data, pd.DataFrame):
             yf_data = yf_data.ffill().bfill()
@@ -51,10 +50,9 @@ def fetch_and_save_data():
         for item in mock_items:
             mock_data[item] = 100 + np.cumsum(np.random.randn(len(dates)))
         
-        # 构建数据库字典
         db = {"status": "✅ 数据库已同步至最新", "yf": yf_data, "fred": fred_data, "mock": mock_data}
         
-        # 核心：将数据永久写入本地硬盘文件
+        # 写入本地硬盘
         with open(DATA_FILE, 'wb') as f:
             pickle.dump(db, f)
             
@@ -66,12 +64,14 @@ def fetch_and_save_data():
 # 3. 核心绘图工厂 (带终极容错与防崩溃机制)
 # ==========================================
 def draw_chart(series, title, color):
+    # 如果没取到数据，画一个占位空图，防止网页崩溃
     if series is None or series.dropna().empty or len(series.dropna()) < 2:
         fig = go.Figure()
         fig.add_annotation(text="暂无有效数据", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="gray", size=14))
         fig.update_layout(title=dict(text=title, font=dict(size=14)), height=250, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
         return fig
 
+    # 正常渲染
     clean_series = series.dropna()
     fig = px.line(x=clean_series.index, y=clean_series.values)
     fig.update_traces(line_color=color, line_width=1.5)
@@ -90,42 +90,51 @@ def render_grid(charts_dict, cols=3):
             st.plotly_chart(draw_chart(series, title, color), use_container_width=True)
 
 # ==========================================
-# 4. 侧边栏：数据仓库管理中心
+# 4. 侧边栏：数据仓库管理与内存缓存 (双层架构)
 # ==========================================
 with st.sidebar:
     st.header("🗄️ 数据库管理 (Ops 专属)")
-    st.markdown("为了保证老板查看时100%稳定，系统已切换为本地数据读取模式。")
+    st.markdown("系统已升级为 内存+硬盘 双轨稳定模式。")
     
-    # 强制更新按钮
     if st.button("🔄 拉取外网最新数据并入库", type="primary"):
-        with st.spinner("正在向华尔街服务器全量拉取数据，请耐心等待(约15秒)..."):
-            fetch_and_save_data()
-            st.success("🎉 数据更新完成并已落盘保存！页面将使用最新数据。")
-            st.rerun() # 刷新页面
+        with st.spinner("正在向华尔街服务器全量拉取数据，请耐心等待 (约15秒)..."):
+            new_db = fetch_and_save_data()
+            st.session_state['macro_db'] = new_db
+            st.success("🎉 数据已落盘并加载至内存！")
+            st.rerun()
 
     st.markdown("---")
     st.header("⚙️ 引擎当前状态")
     
-    # 尝试从本地硬盘加载数据
-    db = None
-    if os.path.exists(DATA_FILE):
-        file_time = datetime.datetime.fromtimestamp(os.path.getmtime(DATA_FILE)).strftime('%Y-%m-%d %H:%M:%S')
-        st.success("✅ 已连接本地高速数据仓库")
-        st.caption(f"💾 上次更新时间: \n{file_time}")
-        with open(DATA_FILE, 'rb') as f:
-            db = pickle.load(f)
+    # 初始化：优先从内存读取，内存空了再去读硬盘
+    if 'macro_db' not in st.session_state:
+        if os.path.exists(DATA_FILE):
+            try:
+                with open(DATA_FILE, 'rb') as f:
+                    st.session_state['macro_db'] = pickle.load(f)
+                st.success("✅ 已从硬盘极速唤醒数据至内存")
+            except Exception as e:
+                st.error("硬盘读取中断，请重新拉取数据。")
+        else:
+            st.error("⚠️ 本机及内存均无缓存数据！")
+
+    # 状态展示
+    if 'macro_db' in st.session_state and "yf" in st.session_state['macro_db']:
+        if os.path.exists(DATA_FILE):
+            file_time = datetime.datetime.fromtimestamp(os.path.getmtime(DATA_FILE)).strftime('%Y-%m-%d %H:%M:%S')
+            st.caption(f"💾 数据库版本: \n{file_time}")
     else:
-        st.error("⚠️ 硬盘中暂无数据缓存！")
-        st.info("请点击上方红色的【拉取最新数据并入库】按钮初始化数据库。")
+        st.info("请点击上方红色的按钮初始化数据库。")
 
 # ==========================================
 # 5. 顶层选项卡：完全映射老板的 4 份 PDF
 # ==========================================
-st.title("🏛️ 宏观资产全景监控终端 (Offline Stable Mode)")
+st.title("🏛️ 宏观资产全景监控终端 (Session-State Stable Mode)")
 st.markdown("---")
 
-# 只有当本地数据库文件存在时，才渲染图表
-if db is not None and "yf" in db:
+# 严格从高速内存中读取数据进行渲染
+if 'macro_db' in st.session_state and "yf" in st.session_state['macro_db']:
+    db = st.session_state['macro_db']
     yf_df = db['yf']
     fr_df = db['fred']
     mk_df = db['mock']
@@ -136,14 +145,15 @@ if db is not None and "yf" in db:
     with tab1:
         st.subheader("Credit, Liquidity, and Yield Analysis")
         charts_t1 = {
-            "High-Yield Spread": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B"),
+            "High-Yield Spread (OAS to Treasury)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B"),
             "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500"),
             "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700"),
-            "10Y-2Y Treasury Spread": (fr_df.get('DGS10') - fr_df.get('DGS2') if 'DGS10' in fr_df and 'DGS2' in fr_df else None, "#FF4B4B"),
-            "SOFR vs EFFR": (fr_df.get('SOFR') - fr_df.get('EFFR') if 'SOFR' in fr_df and 'EFFR' in fr_df else None, "#00CC96"),
+            "10Y-2Y Treasury Spread (Recession)": (fr_df.get('DGS10') - fr_df.get('DGS2') if 'DGS10' in fr_df and 'DGS2' in fr_df else None, "#FF4B4B"),
+            "SOFR vs EFFR (Interbank Liquidity)": (fr_df.get('SOFR') - fr_df.get('EFFR') if 'SOFR' in fr_df and 'EFFR' in fr_df else None, "#00CC96"),
             "Gold-Silver Ratio": (yf_df.get('GC=F') / yf_df.get('SI=F') if 'GC=F' in yf_df and 'SI=F' in yf_df else None, "#AB63FA"),
             "Gold-WTI Ratio": (yf_df.get('GC=F') / yf_df.get('CL=F') if 'GC=F' in yf_df and 'CL=F' in yf_df else None, "#00BFFF"),
-            "Bitcoin-Gold Ratio": (yf_df.get('BTC-USD') / yf_df.get('GC=F') if 'BTC-USD' in yf_df and 'GC=F' in yf_df else None, "#FFD700")
+            "Bitcoin-Gold Ratio": (yf_df.get('BTC-USD') / yf_df.get('GC=F') if 'BTC-USD' in yf_df and 'GC=F' in yf_df else None, "#FFD700"),
+            "Gold-Copper Ratio": (yf_df.get('GC=F') / yf_df.get('HG=F') if 'GC=F' in yf_df and 'HG=F' in yf_df else None, "#FF8C00")
         }
         render_grid(charts_t1, cols=3)
 
