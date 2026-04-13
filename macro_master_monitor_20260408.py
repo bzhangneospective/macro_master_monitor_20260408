@@ -7,7 +7,7 @@ import yfinance as yf
 import datetime
 import akshare as ak
 from fredapi import Fred
-import traceback  # 新增：用于捕获真实报错
+import traceback
 
 # ==========================================
 # 1. 页面全局配置
@@ -15,16 +15,19 @@ import traceback  # 新增：用于捕获真实报错
 st.set_page_config(page_title="Macro Master Monitor", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
-# 2. 核心数据引擎 (强化反崩溃 & 数据拍扁机制)
+# 2. 核心数据引擎 (极速缓存 + 防崩溃拍扁 + 动态对齐)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
     end_date = datetime.date.today()
     start_date = end_date - datetime.timedelta(days=365 * 10)
 
+    # -----------------------------------------------------
+    # 【核心通行证】：你的专属 FRED API Key
+    # -----------------------------------------------------
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # A. 雅虎财经
+    # A. 雅虎财经 (强行拍扁多重索引，防止内存崩溃)
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -33,7 +36,7 @@ def fetch_global_data():
     try:
         yf_raw = yf.download(yf_tickers, period="10y", progress=False)['Close']
         if isinstance(yf_raw, pd.DataFrame):
-            # 关键修复1：强行拍扁多重索引，防止 Streamlit Arrow 序列化崩溃
+            # 解决 MultiIndex 导致的 Streamlit 序列化崩溃
             yf_raw.columns = [str(c[0]) if isinstance(c, tuple) else str(c) for c in yf_raw.columns]
             yf_data = yf_raw.ffill().bfill()
         else:
@@ -42,7 +45,7 @@ def fetch_global_data():
         print(f"YF Error: {e}")
         yf_data = pd.DataFrame()
 
-    # B. 美联储 FRED
+    # B. 美联储 FRED (官方接口直连)
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS'
@@ -60,7 +63,7 @@ def fetch_global_data():
     except Exception as e:
         print(f"FRED Error: {e}")
 
-    # C. AKShare
+    # C. AKShare (国内正规军 API)
     cn_data = pd.DataFrame()
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
@@ -74,11 +77,11 @@ def fetch_global_data():
             df = ak.futures_zh_daily_sina(symbol=symbol)
             df['date'] = pd.to_datetime(df['date'])
             df.set_index('date', inplace=True)
-            # 关键修复2：强行转为纯数字，滤除脏字符串
             cn_data[name] = pd.to_numeric(df['close'], errors='coerce') 
         except:
             cn_data[name] = np.nan
             
+    # 中国 10 年期国债真实收益率
     try:
         bond_df = ak.bond_zh_us_rate()
         bond_df['日期'] = pd.to_datetime(bond_df['日期'])
@@ -87,19 +90,24 @@ def fetch_global_data():
     except:
         cn_data['China_10Y_Yield'] = np.nan
 
-    dates = pd.date_range(start=start_date, end=end_date, freq='B')
-    cn_data['EIA_Crude'] = 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)
-    cn_data['EIA_Gasoline'] = 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)
+    # 关键修复：动态计算真实抓取的数据长度，防止 Pandas 报错
+    base_index = cn_data.index if not cn_data.empty else pd.date_range(start=start_date, end=end_date, freq='B')
+    if cn_data.empty:
+        cn_data = pd.DataFrame(index=base_index)
+        
+    actual_len = len(base_index)
+    cn_data['EIA_Crude'] = 100 + np.cumsum(np.random.randn(actual_len) * 0.5)
+    cn_data['EIA_Gasoline'] = 100 + np.cumsum(np.random.randn(actual_len) * 0.5)
     
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 3. 稳健型绘图工厂
+# 3. 稳健型绘图工厂 (优雅降级)
 # ==========================================
 def draw_chart(series, title, color):
     if series is None or series.dropna().empty or len(series.dropna()) < 2:
         fig = go.Figure()
-        fig.add_annotation(text="暂未获取到数据", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888"))
+        fig.add_annotation(text="等待数据/无API权限", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888"))
         fig.update_layout(title=title, height=200, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig
 
@@ -121,7 +129,7 @@ def render_grid(charts_dict, cols=4):
             st.plotly_chart(draw_chart(series, title, color), use_container_width=True)
 
 # ==========================================
-# 4. 侧边栏导航 (带硬核 Debug 捕获器)
+# 4. 侧边栏导航 (带硬核 Debug)
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=50)
@@ -137,20 +145,18 @@ with st.sidebar:
         fetch_global_data.clear()
         st.rerun()
 
-    with st.spinner("正通过官方 API 极速拉取 50+ 资产... (约需15秒)"):
+    with st.spinner("正通过官方 API 极速拉取 50+ 资产..."):
         try:
             db = fetch_global_data()
             st.success("✅ 全部数据通道握手成功")
-            st.caption(f"上次落盘时间: {db['time']}")
+            st.caption(f"上次同步时间: {db['time']}")
         except Exception as e:
-            # 关键修复3：撕下遮羞布，直接把真实报错砸在屏幕上
             st.error("🚨 触发底层崩溃！真实报错信息如下：")
             st.code(traceback.format_exc(), language="bash")
-            st.warning("👆 请直接把上面这个黑框里的英文报错截图发给我！")
             db = None
 
 # ==========================================
-# 5. 主页面布局
+# 5. 主页面布局 (矩阵展示)
 # ==========================================
 st.title("🏛️ 宏观资产全景监控终端 (Pro API Version)")
 
@@ -197,9 +203,10 @@ if db:
             "SHFE Rebar (螺纹钢)": (mk_df.get('SHFE_Rebar'), "#696969"), "DCE Iron Ore (铁矿)": (mk_df.get('DCE_IronOre'), "#8B4513"),
             "DCE Coke (焦炭)": (mk_df.get('DCE_Coke'), "#2F4F4F"), "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B"),
             "ZCE Methanol (甲醇)": (mk_df.get('ZCE_Methanol'), "#4B0082"), "ZCE Sugar (白糖)": (mk_df.get('ZCE_Sugar'), "#F8F8FF"),
-            "DCE Soybean Meal (豆粕)": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32"), "DCE Soybean Oil (豆油)": (mk_df.get('DCE_SoybeanOil'), "#DAA520")
+            "DCE Soybean Meal (豆粕)": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32"), "DCE Soybean Oil (豆油)": (mk_df.get('DCE_SoybeanOil'), "#DAA520"),
+            "EIA Crude Inv. (Mock)": (mk_df.get('EIA_Crude'), "#8B4513"), "EIA Gasoline Inv. (Mock)": (mk_df.get('EIA_Gasoline'), "#4682B4")
         }
-        render_grid(cn_c, cols=6)
+        render_grid(cn_c, cols=7)
 
     # --- 模块 3: FX & FI ---
     elif page == "💱 3. FX & FI":
@@ -226,6 +233,7 @@ if db:
         render_grid(eq_c, cols=4)
         
         st.markdown("---")
+        st.subheader("Detailed Sector Performance")
         s1, s2, s3 = st.columns(3)
         with s1:
             us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Consumer Staples", "Materials", "Industrials", "Health Care", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 21.8, 10.3, 8.0, -1.2, 6.5, -12.1]})
