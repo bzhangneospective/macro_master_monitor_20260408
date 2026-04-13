@@ -90,7 +90,7 @@ def fetch_global_data():
     except:
         cn_data['China_10Y_Yield'] = np.nan
 
-    # 关键修复：动态计算真实抓取的数据长度，防止 Pandas 报错
+    # 动态计算真实抓取的数据长度，防止 Pandas 报错
     base_index = cn_data.index if not cn_data.empty else pd.date_range(start=start_date, end=end_date, freq='B')
     if cn_data.empty:
         cn_data = pd.DataFrame(index=base_index)
@@ -102,34 +102,37 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 3. 稳健型绘图工厂 (优雅降级)
+# 3. 稳健型绘图工厂 (高度调整为 380，等比放大)
 # ==========================================
 def draw_chart(series, title, color):
     if series is None or series.dropna().empty or len(series.dropna()) < 2:
         fig = go.Figure()
-        fig.add_annotation(text="等待数据/无API权限", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888"))
-        fig.update_layout(title=title, height=200, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        fig.add_annotation(text="等待数据/无API权限", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888", size=16))
+        fig.update_layout(title=title, height=380, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig
 
     clean = series.dropna()
     fig = px.line(x=clean.index, y=clean.values)
-    fig.update_traces(line_color=color, line_width=1.5)
+    fig.update_traces(line_color=color, line_width=2) # 线条也适当加粗，配合大图
     fig.update_layout(
-        title=dict(text=title, font=dict(size=12)), margin=dict(l=0, r=0, t=30, b=0), height=200,
+        title=dict(text=title, font=dict(size=16)), # 标题字号放大
+        margin=dict(l=0, r=0, t=40, b=0), 
+        height=380, # 图表高度等比放大
         xaxis_title="", yaxis_title="", xaxis=dict(showgrid=False),
         yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.1)'),
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
     )
     return fig
 
-def render_grid(charts_dict, cols=4):
+# 默认列数修改为 2
+def render_grid(charts_dict, cols=2):
     cols_obj = st.columns(cols)
     for i, (title, (series, color)) in enumerate(charts_dict.items()):
         with cols_obj[i % cols]:
             st.plotly_chart(draw_chart(series, title, color), use_container_width=True)
 
 # ==========================================
-# 4. 侧边栏导航 (带硬核 Debug)
+# 4. 侧边栏导航
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=50)
@@ -180,7 +183,7 @@ if db:
             "Gold-WTI Ratio": (yf_df.get('GC=F') / yf_df.get('CL=F') if 'GC=F' in yf_df and 'CL=F' in yf_df else None, "#00BFFF"),
             "Gold-Copper Ratio": (yf_df.get('GC=F') / yf_df.get('HG=F') if 'GC=F' in yf_df and 'HG=F' in yf_df else None, "#8A2BE2")
         }
-        render_grid(charts, cols=5)
+        render_grid(charts, cols=2) # 强制双列
 
     # --- 模块 2: Commodity ---
     elif page == "⚒️ 2. Commodity":
@@ -193,7 +196,7 @@ if db:
             "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3"), "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA"),
             "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00")
         }
-        render_grid(intl_c, cols=6)
+        render_grid(intl_c, cols=2) # 强制双列
 
         st.markdown("---")
         st.subheader("China Futures Real-Time (AKShare - SHFE/DCE/ZCE)")
@@ -206,7 +209,7 @@ if db:
             "DCE Soybean Meal (豆粕)": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32"), "DCE Soybean Oil (豆油)": (mk_df.get('DCE_SoybeanOil'), "#DAA520"),
             "EIA Crude Inv. (Mock)": (mk_df.get('EIA_Crude'), "#8B4513"), "EIA Gasoline Inv. (Mock)": (mk_df.get('EIA_Gasoline'), "#4682B4")
         }
-        render_grid(cn_c, cols=7)
+        render_grid(cn_c, cols=2) # 强制双列
 
     # --- 模块 3: FX & FI ---
     elif page == "💱 3. FX & FI":
@@ -219,7 +222,7 @@ if db:
             "US 2Y Yield": (fr_df.get('DGS2'), "#696969"), "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000"),
             "China 10Y Yield (AKShare)": (mk_df.get('China_10Y_Yield'), "#FF4B4B"), "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4")
         }
-        render_grid(fx_c, cols=6)
+        render_grid(fx_c, cols=2) # 强制双列
 
     # --- 模块 4: Equity Markets ---
     elif page == "📈 4. Equity Markets":
@@ -230,17 +233,18 @@ if db:
             "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00"), "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500"),
             "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32"), "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA")
         }
-        render_grid(eq_c, cols=4)
+        render_grid(eq_c, cols=2) # 强制双列
         
         st.markdown("---")
         st.subheader("Detailed Sector Performance")
+        # 底部的板块资金轮动条形图，虽然是三列（美股/港股/A股），但也把高度拉伸到了 500，提升大屏压迫感
         s1, s2, s3 = st.columns(3)
         with s1:
             us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Consumer Staples", "Materials", "Industrials", "Health Care", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 21.8, 10.3, 8.0, -1.2, 6.5, -12.1]})
-            st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors", color="YTD (%)", color_continuous_scale="RdYlGn", height=400), use_container_width=True)
+            st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors", color="YTD (%)", color_continuous_scale="RdYlGn", height=500), use_container_width=True)
         with s2:
             hk_sec = pd.DataFrame({"Sector": ["HSCEI ETF", "China Internet", "CSI 300 HK", "HS China Ent", "HS Index ETF", "HS Tech ETF"], "YTD (%)": [-12.5, -10.0, -7.5, -5.2, -5.0, -2.5]})
-            st.plotly_chart(px.bar(hk_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="HK Sectors", color="YTD (%)", color_continuous_scale="RdYlGn", height=400), use_container_width=True)
+            st.plotly_chart(px.bar(hk_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="HK Sectors", color="YTD (%)", color_continuous_scale="RdYlGn", height=500), use_container_width=True)
         with s3:
             cn_sec = pd.DataFrame({"Sector": ["Tech", "CSI 500", "Real Estate", "Gaming", "Bank", "ChiNext", "Pharma", "Biotech", "5G", "Dividend", "Military", "Coal"], "YTD (%)": [9.3, 8.7, 5.8, 5.49, 3.1, 1.8, 4.8, -6.4, 0.5, 5.0, -0.27, -1.62]})
-            st.plotly_chart(px.bar(cn_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="CN Sectors", color="YTD (%)", color_continuous_scale="RdYlGn", height=400), use_container_width=True)
+            st.plotly_chart(px.bar(cn_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="CN Sectors", color="YTD (%)", color_continuous_scale="RdYlGn", height=500), use_container_width=True)
