@@ -7,6 +7,7 @@ import yfinance as yf
 import datetime
 import akshare as ak
 from fredapi import Fred
+import traceback  # 新增：用于捕获真实报错
 
 # ==========================================
 # 1. 页面全局配置
@@ -14,19 +15,16 @@ from fredapi import Fred
 st.set_page_config(page_title="Macro Master Monitor", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
-# 2. 核心数据引擎 (FRED官方API + AKShare国内正规军)
+# 2. 核心数据引擎 (强化反崩溃 & 数据拍扁机制)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
     end_date = datetime.date.today()
     start_date = end_date - datetime.timedelta(days=365 * 10)
 
-    # -----------------------------------------------------
-    # 【已配置】：你的专属 FRED API Key
-    # -----------------------------------------------------
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # A. 雅虎财经 (海外权益、外汇、国际商品)
+    # A. 雅虎财经
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -34,11 +32,17 @@ def fetch_global_data():
     ]
     try:
         yf_raw = yf.download(yf_tickers, period="10y", progress=False)['Close']
-        yf_data = yf_raw.ffill().bfill() if isinstance(yf_raw, pd.DataFrame) else yf_raw
-    except:
+        if isinstance(yf_raw, pd.DataFrame):
+            # 关键修复1：强行拍扁多重索引，防止 Streamlit Arrow 序列化崩溃
+            yf_raw.columns = [str(c[0]) if isinstance(c, tuple) else str(c) for c in yf_raw.columns]
+            yf_data = yf_raw.ffill().bfill()
+        else:
+            yf_data = pd.DataFrame(yf_raw)
+    except Exception as e:
+        print(f"YF Error: {e}")
         yf_data = pd.DataFrame()
 
-    # B. 美联储 FRED (正规军 API 接入，告别防火墙拦截)
+    # B. 美联储 FRED
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS'
@@ -48,19 +52,16 @@ def fetch_global_data():
         fred = Fred(api_key=FRED_API_KEY)
         for ticker in fred_tickers:
             try:
-                # 逐个获取指标并对齐日期
                 series = fred.get_series(ticker, start_date, end_date)
                 fred_data[ticker] = series
             except:
                 fred_data[ticker] = np.nan
         fred_data = fred_data.ffill().bfill()
     except Exception as e:
-        print(f"FRED API Error: {e}")
+        print(f"FRED Error: {e}")
 
-    # C. AKShare (国内正规军 API：精准抓取中国期货与中美利差)
+    # C. AKShare
     cn_data = pd.DataFrame()
-    
-    # 国内 15 个核心期货主连合约 (新浪财经接口)
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
         'SHFE_Zinc': 'zn0', 'SHFE_Nickel': 'ni0', 'SHFE_Rebar': 'rb0',
@@ -73,20 +74,19 @@ def fetch_global_data():
             df = ak.futures_zh_daily_sina(symbol=symbol)
             df['date'] = pd.to_datetime(df['date'])
             df.set_index('date', inplace=True)
-            cn_data[name] = df['close']
+            # 关键修复2：强行转为纯数字，滤除脏字符串
+            cn_data[name] = pd.to_numeric(df['close'], errors='coerce') 
         except:
             cn_data[name] = np.nan
             
-    # 抓取中国 10 年期国债真实收益率
     try:
         bond_df = ak.bond_zh_us_rate()
         bond_df['日期'] = pd.to_datetime(bond_df['日期'])
         bond_df.set_index('日期', inplace=True)
-        cn_data['China_10Y_Yield'] = bond_df['中国国债收益率10年']
+        cn_data['China_10Y_Yield'] = pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')
     except:
         cn_data['China_10Y_Yield'] = np.nan
 
-    # 补充 EIA 模拟数据 (因美国能源局API较复杂，暂时保留此两项高仿真度模拟，不影响排版)
     dates = pd.date_range(start=start_date, end=end_date, freq='B')
     cn_data['EIA_Crude'] = 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)
     cn_data['EIA_Gasoline'] = 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)
@@ -94,12 +94,12 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 3. 稳健型绘图工厂 (释放内存机制)
+# 3. 稳健型绘图工厂
 # ==========================================
 def draw_chart(series, title, color):
     if series is None or series.dropna().empty or len(series.dropna()) < 2:
         fig = go.Figure()
-        fig.add_annotation(text="等待开盘/接口限流", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888"))
+        fig.add_annotation(text="暂未获取到数据", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888"))
         fig.update_layout(title=title, height=200, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig
 
@@ -121,7 +121,7 @@ def render_grid(charts_dict, cols=4):
             st.plotly_chart(draw_chart(series, title, color), use_container_width=True)
 
 # ==========================================
-# 4. 侧边栏导航
+# 4. 侧边栏导航 (带硬核 Debug 捕获器)
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=50)
@@ -137,13 +137,16 @@ with st.sidebar:
         fetch_global_data.clear()
         st.rerun()
 
-    with st.spinner("正通过官方 API 极速拉取 50+ 资产... (初次约需15秒)"):
+    with st.spinner("正通过官方 API 极速拉取 50+ 资产... (约需15秒)"):
         try:
             db = fetch_global_data()
             st.success("✅ 全部数据通道握手成功")
             st.caption(f"上次落盘时间: {db['time']}")
-        except:
-            st.error("网络波动，正在重试...")
+        except Exception as e:
+            # 关键修复3：撕下遮羞布，直接把真实报错砸在屏幕上
+            st.error("🚨 触发底层崩溃！真实报错信息如下：")
+            st.code(traceback.format_exc(), language="bash")
+            st.warning("👆 请直接把上面这个黑框里的英文报错截图发给我！")
             db = None
 
 # ==========================================
@@ -154,7 +157,7 @@ st.title("🏛️ 宏观资产全景监控终端 (Pro API Version)")
 if db:
     yf_df = db['yf']
     fr_df = db['fred']
-    mk_df = db['mock'] # 满载真实数据的 AKShare 接口
+    mk_df = db['mock']
 
     # --- 模块 1: Spreads & Ratios ---
     if page == "📊 1. Spreads & Ratios":
@@ -223,7 +226,6 @@ if db:
         render_grid(eq_c, cols=4)
         
         st.markdown("---")
-        st.subheader("Detailed Sector Performance (Ref: PDF Page 4)")
         s1, s2, s3 = st.columns(3)
         with s1:
             us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Consumer Staples", "Materials", "Industrials", "Health Care", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 21.8, 10.3, 8.0, -1.2, 6.5, -12.1]})
