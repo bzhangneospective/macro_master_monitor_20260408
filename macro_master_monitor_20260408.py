@@ -10,12 +10,12 @@ from fredapi import Fred
 import traceback
 
 # ==========================================
-# 1. 页面全局配置
+# 1. Page Configuration
 # ==========================================
 st.set_page_config(page_title="Macro Master Monitor", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
-# 2. 核心数据引擎 (极速缓存 + 防崩溃拍扁 + 动态对齐)
+# 2. Core Data Engine (Cache + Flattening + Alignment)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
@@ -23,11 +23,11 @@ def fetch_global_data():
     start_date = end_date - datetime.timedelta(days=365 * 10)
 
     # -----------------------------------------------------
-    # 【核心通行证】：你的专属 FRED API Key
+    # FRED API Key
     # -----------------------------------------------------
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # A. 雅虎财经 (强行拍扁多重索引，防止内存崩溃)
+    # A. Yahoo Finance
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -36,7 +36,6 @@ def fetch_global_data():
     try:
         yf_raw = yf.download(yf_tickers, period="10y", progress=False)['Close']
         if isinstance(yf_raw, pd.DataFrame):
-            # 解决 MultiIndex 导致的 Streamlit 序列化崩溃
             yf_raw.columns = [str(c[0]) if isinstance(c, tuple) else str(c) for c in yf_raw.columns]
             yf_data = yf_raw.ffill().bfill()
         else:
@@ -45,7 +44,7 @@ def fetch_global_data():
         print(f"YF Error: {e}")
         yf_data = pd.DataFrame()
 
-    # B. 美联储 FRED (官方接口直连)
+    # B. Federal Reserve (FRED)
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS'
@@ -63,7 +62,7 @@ def fetch_global_data():
     except Exception as e:
         print(f"FRED Error: {e}")
 
-    # C. AKShare (国内正规军 API)
+    # C. AKShare (China Futures & Bond)
     cn_data = pd.DataFrame()
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
@@ -81,7 +80,7 @@ def fetch_global_data():
         except:
             cn_data[name] = np.nan
             
-    # 中国 10 年期国债真实收益率
+    # China 10Y Yield
     try:
         bond_df = ak.bond_zh_us_rate()
         bond_df['日期'] = pd.to_datetime(bond_df['日期'])
@@ -90,7 +89,7 @@ def fetch_global_data():
     except:
         cn_data['China_10Y_Yield'] = np.nan
 
-    # 动态计算真实抓取的数据长度，防止 Pandas 报错
+    # Dynamic Length Alignment for Mock Data
     base_index = cn_data.index if not cn_data.empty else pd.date_range(start=start_date, end=end_date, freq='B')
     if cn_data.empty:
         cn_data = pd.DataFrame(index=base_index)
@@ -102,29 +101,29 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 3. 稳健型绘图工厂 (高度调整为 380，等比放大)
+# 3. Chart Factory (Graceful Degradation)
 # ==========================================
 def draw_chart(series, title, color):
     if series is None or series.dropna().empty or len(series.dropna()) < 2:
         fig = go.Figure()
-        fig.add_annotation(text="等待数据/无API权限", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888", size=16))
+        fig.add_annotation(text="Awaiting Data / No API Access", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888", size=16))
         fig.update_layout(title=title, height=380, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig
 
     clean = series.dropna()
     fig = px.line(x=clean.index, y=clean.values)
-    fig.update_traces(line_color=color, line_width=2) # 线条也适当加粗，配合大图
+    fig.update_traces(line_color=color, line_width=2) 
     fig.update_layout(
-        title=dict(text=title, font=dict(size=16)), # 标题字号放大
+        title=dict(text=title, font=dict(size=16)), 
         margin=dict(l=0, r=0, t=40, b=0), 
-        height=380, # 图表高度等比放大
+        height=380, 
         xaxis_title="", yaxis_title="", xaxis=dict(showgrid=False),
         yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.1)'),
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
     )
     return fig
 
-# 默认列数修改为 2
+# Enforce 2 Columns
 def render_grid(charts_dict, cols=2):
     cols_obj = st.columns(cols)
     for i, (title, (series, color)) in enumerate(charts_dict.items()):
@@ -132,43 +131,43 @@ def render_grid(charts_dict, cols=2):
             st.plotly_chart(draw_chart(series, title, color), use_container_width=True)
 
 # ==========================================
-# 4. 侧边栏导航
+# 4. Sidebar Navigation
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=50)
     st.header("Macro Terminal")
-    st.caption("🚀 引擎状态: AKShare + FRED API 直连")
+    st.caption("🚀 Engine Status: AKShare + FRED API")
     page = st.radio(
-        "📂 选择分析模块", 
+        "📂 Select Module", 
         ["📊 1. Spreads & Ratios", "⚒️ 2. Commodity", "💱 3. FX & FI", "📈 4. Equity Markets"]
     )
     
     st.markdown("---")
-    if st.button("🔄 强制全量同步最新数据", type="primary"):
+    if st.button("🔄 Force Sync Latest Data", type="primary"):
         fetch_global_data.clear()
         st.rerun()
 
-    with st.spinner("正通过官方 API 极速拉取 50+ 资产..."):
+    with st.spinner("Fetching 50+ global assets via Official APIs..."):
         try:
             db = fetch_global_data()
-            st.success("✅ 全部数据通道握手成功")
-            st.caption(f"上次同步时间: {db['time']}")
+            st.success("✅ All Data Channels Connected")
+            st.caption(f"Last Sync: {db['time']}")
         except Exception as e:
-            st.error("🚨 触发底层崩溃！真实报错信息如下：")
+            st.error("🚨 Core Crash Detected! Traceback below:")
             st.code(traceback.format_exc(), language="bash")
             db = None
 
 # ==========================================
-# 5. 主页面布局 (矩阵展示)
+# 5. Main Dashboard Layout
 # ==========================================
-st.title("🏛️ 宏观资产全景监控终端 (Pro API Version)")
+st.title("🏛️ Macro Asset Master Monitor (Pro API Version)")
 
 if db:
     yf_df = db['yf']
     fr_df = db['fred']
     mk_df = db['mock']
 
-    # --- 模块 1: Spreads & Ratios ---
+    # --- Module 1: Spreads & Ratios ---
     if page == "📊 1. Spreads & Ratios":
         st.subheader("Credit, Liquidity & Yield Curve")
         charts = {
@@ -176,16 +175,16 @@ if db:
             "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C"),
             "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500"),
             "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700"),
-            "10Y-2Y Spread (Recession)": (fr_df.get('DGS10') - fr_df.get('DGS2') if 'DGS10' in fr_df and 'DGS2' in fr_df else None, "#FF4B4B"),
+            "10Y-2Y Spread (Recession Indicator)": (fr_df.get('DGS10') - fr_df.get('DGS2') if 'DGS10' in fr_df and 'DGS2' in fr_df else None, "#FF4B4B"),
             "10Y-3M Spread (Fed Target)": (fr_df.get('DGS10') - fr_df.get('DGS3MO') if 'DGS10' in fr_df and 'DGS3MO' in fr_df else None, "#DC143C"),
-            "SOFR-EFFR (Liquidity)": (fr_df.get('SOFR') - fr_df.get('EFFR') if 'SOFR' in fr_df and 'EFFR' in fr_df else None, "#00CC96"),
+            "SOFR-EFFR (Liquidity Premium)": (fr_df.get('SOFR') - fr_df.get('EFFR') if 'SOFR' in fr_df and 'EFFR' in fr_df else None, "#00CC96"),
             "Gold-Silver Ratio": (yf_df.get('GC=F') / yf_df.get('SI=F') if 'GC=F' in yf_df and 'SI=F' in yf_df else None, "#AB63FA"),
             "Gold-WTI Ratio": (yf_df.get('GC=F') / yf_df.get('CL=F') if 'GC=F' in yf_df and 'CL=F' in yf_df else None, "#00BFFF"),
             "Gold-Copper Ratio": (yf_df.get('GC=F') / yf_df.get('HG=F') if 'GC=F' in yf_df and 'HG=F' in yf_df else None, "#8A2BE2")
         }
-        render_grid(charts, cols=2) # 强制双列
+        render_grid(charts, cols=2)
 
-    # --- 模块 2: Commodity ---
+    # --- Module 2: Commodity ---
     elif page == "⚒️ 2. Commodity":
         st.subheader("International Futures (COMEX/NYMEX/CBOT)")
         intl_c = {
@@ -196,22 +195,22 @@ if db:
             "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3"), "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA"),
             "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00")
         }
-        render_grid(intl_c, cols=2) # 强制双列
+        render_grid(intl_c, cols=2)
 
         st.markdown("---")
         st.subheader("China Futures Real-Time (AKShare - SHFE/DCE/ZCE)")
         cn_c = {
             "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0"), "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9"),
             "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899"), "SHFE Nickel": (mk_df.get('SHFE_Nickel'), "#708090"),
-            "SHFE Rebar (螺纹钢)": (mk_df.get('SHFE_Rebar'), "#696969"), "DCE Iron Ore (铁矿)": (mk_df.get('DCE_IronOre'), "#8B4513"),
-            "DCE Coke (焦炭)": (mk_df.get('DCE_Coke'), "#2F4F4F"), "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B"),
-            "ZCE Methanol (甲醇)": (mk_df.get('ZCE_Methanol'), "#4B0082"), "ZCE Sugar (白糖)": (mk_df.get('ZCE_Sugar'), "#F8F8FF"),
-            "DCE Soybean Meal (豆粕)": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32"), "DCE Soybean Oil (豆油)": (mk_df.get('DCE_SoybeanOil'), "#DAA520"),
+            "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969"), "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513"),
+            "DCE Coke": (mk_df.get('DCE_Coke'), "#2F4F4F"), "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B"),
+            "ZCE Methanol": (mk_df.get('ZCE_Methanol'), "#4B0082"), "ZCE Sugar": (mk_df.get('ZCE_Sugar'), "#F8F8FF"),
+            "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32"), "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520"),
             "EIA Crude Inv. (Mock)": (mk_df.get('EIA_Crude'), "#8B4513"), "EIA Gasoline Inv. (Mock)": (mk_df.get('EIA_Gasoline'), "#4682B4")
         }
-        render_grid(cn_c, cols=2) # 强制双列
+        render_grid(cn_c, cols=2)
 
-    # --- 模块 3: FX & FI ---
+    # --- Module 3: FX & FI ---
     elif page == "💱 3. FX & FI":
         st.subheader("Global FX & Sovereign Yield Curves")
         fx_c = {
@@ -222,9 +221,9 @@ if db:
             "US 2Y Yield": (fr_df.get('DGS2'), "#696969"), "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000"),
             "China 10Y Yield (AKShare)": (mk_df.get('China_10Y_Yield'), "#FF4B4B"), "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4")
         }
-        render_grid(fx_c, cols=2) # 强制双列
+        render_grid(fx_c, cols=2)
 
-    # --- 模块 4: Equity Markets ---
+    # --- Module 4: Equity Markets ---
     elif page == "📈 4. Equity Markets":
         st.subheader("Global Equity Indices")
         eq_c = {
@@ -233,11 +232,10 @@ if db:
             "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00"), "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500"),
             "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32"), "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA")
         }
-        render_grid(eq_c, cols=2) # 强制双列
+        render_grid(eq_c, cols=2)
         
         st.markdown("---")
         st.subheader("Detailed Sector Performance")
-        # 底部的板块资金轮动条形图，虽然是三列（美股/港股/A股），但也把高度拉伸到了 500，提升大屏压迫感
         s1, s2, s3 = st.columns(3)
         with s1:
             us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Consumer Staples", "Materials", "Industrials", "Health Care", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 21.8, 10.3, 8.0, -1.2, 6.5, -12.1]})
