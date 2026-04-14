@@ -125,15 +125,15 @@ def draw_chart(series_or_df, title, base_color):
     fig.add_trace(go.Scatter(x=df.index, y=df['MA120'], mode='lines', name='MA120', line=dict(color='#AB63FA', width=1.2, dash='dot'), visible='legendonly'))
     fig.add_trace(go.Scatter(x=df.index, y=df['MA200'], mode='lines', name='MA200', line=dict(color='#4682B4', width=1.2, dash='dot'), visible='legendonly'))
 
-    # CRITICAL UPDATE: Set dragmode to 'pan' for broker-like interaction
+    # Configuration for smooth panning and no rangeslider
     fig.update_layout(
         title=dict(text=title, font=dict(size=20, color="#FFFFFF")),
         margin=dict(l=10, r=10, t=60, b=10),
         height=600,
         dragmode='pan', # Enables Left-Click Dragging to move through time
         xaxis=dict(
-            rangeslider=dict(visible=False), 
-            type="date",False
+            rangeslider=dict(visible=False), # Perfectly closed Rangeslider without syntax error
+            type="date",
             showgrid=False,
             zeroline=False,
             color="#888"
@@ -238,6 +238,5 @@ if db:
         render_grid(eq_c)
         
         st.markdown("---")
-        # Sector Charts also enhanced for visibility
         us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Materials", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 10.3, 6.5, -12.1]})
         st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors YTD (%)", template="plotly_dark", height=500), use_container_width=True)
