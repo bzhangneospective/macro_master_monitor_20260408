@@ -15,16 +15,13 @@ import traceback
 st.set_page_config(page_title="Macro Master Monitor", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
-# 2. Core Data Engine (Cache + Flattening + Alignment)
+# 2. Core Data Engine
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
     end_date = datetime.date.today()
     start_date = end_date - datetime.timedelta(days=365 * 10)
 
-    # -----------------------------------------------------
-    # FRED API Key
-    # -----------------------------------------------------
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
     # A. Yahoo Finance
@@ -80,7 +77,6 @@ def fetch_global_data():
         except:
             cn_data[name] = np.nan
             
-    # China 10Y Yield
     try:
         bond_df = ak.bond_zh_us_rate()
         bond_df['日期'] = pd.to_datetime(bond_df['日期'])
@@ -89,7 +85,6 @@ def fetch_global_data():
     except:
         cn_data['China_10Y_Yield'] = np.nan
 
-    # Dynamic Length Alignment for Mock Data
     base_index = cn_data.index if not cn_data.empty else pd.date_range(start=start_date, end=end_date, freq='B')
     if cn_data.empty:
         cn_data = pd.DataFrame(index=base_index)
@@ -101,19 +96,19 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 3. Interactive Chart Factory (Line + MA + Rangeslider)
+# 3. Enhanced Broker-Level Chart Factory
 # ==========================================
 def draw_chart(series_or_df, title, base_color):
     if series_or_df is None or series_or_df.dropna().empty or len(series_or_df.dropna()) < 10:
         fig = go.Figure()
-        fig.add_annotation(text="Awaiting Data / No API Access", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888", size=16))
+        fig.add_annotation(text="Awaiting Data Sync", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888", size=16))
         fig.update_layout(title=title, height=550, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig
 
-    # Prepare DataFrame and calculate MAs
     df = pd.DataFrame(series_or_df.dropna())
     close_col = df.columns[0]
     
+    # Calculate Institutional Moving Averages
     df['MA20'] = df[close_col].rolling(window=20).mean()
     df['MA60'] = df[close_col].rolling(window=60).mean()
     df['MA120'] = df[close_col].rolling(window=120).mean()
@@ -121,39 +116,55 @@ def draw_chart(series_or_df, title, base_color):
 
     fig = go.Figure()
 
-    # Main Trend Line
-    fig.add_trace(go.Scatter(x=df.index, y=df[close_col], mode='lines', name='Value', line=dict(color=base_color, width=2)))
+    # Main Price Action
+    fig.add_trace(go.Scatter(x=df.index, y=df[close_col], mode='lines', name='Price', line=dict(color=base_color, width=2.5)))
 
-    # Moving Averages (120 and 200 are hidden by default to keep chart clean)
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], mode='lines', name='MA20', line=dict(color='#FFD700', width=1)))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], mode='lines', name='MA60', line=dict(color='#FF4B4B', width=1)))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA120'], mode='lines', name='MA120', line=dict(color='#AB63FA', width=1), visible='legendonly'))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA200'], mode='lines', name='MA200', line=dict(color='#4682B4', width=1), visible='legendonly'))
+    # MA Overlays
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], mode='lines', name='MA20', line=dict(color='#FFD700', width=1.2, dash='solid')))
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], mode='lines', name='MA60', line=dict(color='#FF4B4B', width=1.2, dash='solid')))
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA120'], mode='lines', name='MA120', line=dict(color='#AB63FA', width=1.2, dash='dot'), visible='legendonly'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA200'], mode='lines', name='MA200', line=dict(color='#4682B4', width=1.2, dash='dot'), visible='legendonly'))
 
-    # Advanced Broker-level Interaction
+    # CRITICAL UPDATE: Set dragmode to 'pan' for broker-like interaction
     fig.update_layout(
-        title=dict(text=title, font=dict(size=18)),
-        margin=dict(l=0, r=0, t=50, b=0),
-        height=550, # Full screen height
+        title=dict(text=title, font=dict(size=20, color="#FFFFFF")),
+        margin=dict(l=10, r=10, t=60, b=10),
+        height=600,
+        dragmode='pan', # Enables Left-Click Dragging to move through time
         xaxis=dict(
-            rangeslider=dict(visible=True), # Bottom scroller
+            rangeslider=dict(visible=True), 
             type="date",
-            showgrid=False
+            showgrid=False,
+            zeroline=False,
+            color="#888"
         ),
-        yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.1)'),
-        paper_bgcolor='rgba(0,0,0,0)', 
-        plot_bgcolor='rgba(0,0,0,0)',
-        hovermode="x unified", # Crosshair showing all values
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor='rgba(128,128,128,0.15)',
+            zeroline=False,
+            side="right", # Professional trading view style: Y-axis on the right
+            color="#888"
+        ),
+        template="plotly_dark", # Dark theme for better contrast
+        hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     return fig
 
 def render_grid(charts_dict):
-    """Render 1 chart per row using full container width"""
     for title, (series, color) in charts_dict.items():
-        # config={'scrollZoom': True} unlocks mouse wheel zooming
-        st.plotly_chart(draw_chart(series, title, color), use_container_width=True, config={'scrollZoom': True})
-        st.markdown("<br>", unsafe_allow_html=True)
+        # config settings to ensure scrolling and panning feel native
+        st.plotly_chart(
+            draw_chart(series, title, color), 
+            use_container_width=True, 
+            config={
+                'scrollZoom': True,      # Zoom with mouse wheel
+                'displayModeBar': True,  # Show tools if needed
+                'modeBarButtonsToRemove': ['lasso2d', 'select2d'], # Clean UI
+                'responsive': True
+            }
+        )
+        st.markdown("<br><hr style='border: 0.5px solid #333;'><br>", unsafe_allow_html=True)
 
 # ==========================================
 # 4. Sidebar Navigation
@@ -161,114 +172,72 @@ def render_grid(charts_dict):
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=50)
     st.header("Macro Terminal")
-    st.caption("🚀 Engine Status: AKShare + FRED API")
+    st.caption("🚀 Engine: Official API Direct Sync")
     page = st.radio(
-        "📂 Select Module", 
+        "📂 Navigation", 
         ["📊 1. Spreads & Ratios", "⚒️ 2. Commodity", "💱 3. FX & FI", "📈 4. Equity Markets"]
     )
     
     st.markdown("---")
-    if st.button("🔄 Force Sync Latest Data", type="primary"):
+    if st.button("🔄 Force Sync Data", type="primary"):
         fetch_global_data.clear()
         st.rerun()
 
-    with st.spinner("Fetching 50+ global assets via Official APIs..."):
-        try:
-            db = fetch_global_data()
-            st.success("✅ All Data Channels Connected")
-            st.caption(f"Last Sync: {db['time']}")
-        except Exception as e:
-            st.error("🚨 Core Crash Detected! Traceback below:")
-            st.code(traceback.format_exc(), language="bash")
-            db = None
+    try:
+        db = fetch_global_data()
+        st.success("✅ Data Engine Live")
+        st.caption(f"Last Update: {db['time']}")
+    except:
+        st.error("Connection Error")
+        db = None
 
 # ==========================================
-# 5. Main Dashboard Layout (Full Width Mode)
+# 5. Main Terminal Layout
 # ==========================================
-st.title("🏛️ Macro Asset Master Monitor (Pro API Version)")
+st.title("🏛️ Macro Asset Master Monitor")
 
 if db:
     yf_df = db['yf']
     fr_df = db['fred']
     mk_df = db['mock']
 
-    # --- Module 1: Spreads & Ratios ---
     if page == "📊 1. Spreads & Ratios":
-        st.subheader("Credit, Liquidity & Yield Curve")
+        st.subheader("Credit & Liquidity Analysis")
         charts = {
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B"),
             "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C"),
-            "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500"),
-            "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700"),
-            "10Y-2Y Spread (Recession Indicator)": (fr_df.get('DGS10') - fr_df.get('DGS2') if 'DGS10' in fr_df and 'DGS2' in fr_df else None, "#FF4B4B"),
-            "10Y-3M Spread (Fed Target)": (fr_df.get('DGS10') - fr_df.get('DGS3MO') if 'DGS10' in fr_df and 'DGS3MO' in fr_df else None, "#DC143C"),
-            "SOFR-EFFR (Liquidity Premium)": (fr_df.get('SOFR') - fr_df.get('EFFR') if 'SOFR' in fr_df and 'EFFR' in fr_df else None, "#00CC96"),
-            "Gold-Silver Ratio": (yf_df.get('GC=F') / yf_df.get('SI=F') if 'GC=F' in yf_df and 'SI=F' in yf_df else None, "#AB63FA"),
-            "Gold-WTI Ratio": (yf_df.get('GC=F') / yf_df.get('CL=F') if 'GC=F' in yf_df and 'CL=F' in yf_df else None, "#00BFFF"),
-            "Gold-Copper Ratio": (yf_df.get('GC=F') / yf_df.get('HG=F') if 'GC=F' in yf_df and 'HG=F' in yf_df else None, "#8A2BE2")
+            "10Y-2Y Spread": (fr_df.get('DGS10') - fr_df.get('DGS2') if 'DGS10' in fr_df and 'DGS2' in fr_df else None, "#FF4B4B"),
+            "SOFR-EFFR Premium": (fr_df.get('SOFR') - fr_df.get('EFFR') if 'SOFR' in fr_df and 'EFFR' in fr_df else None, "#00CC96"),
+            "Gold-Silver Ratio": (yf_df.get('GC=F') / yf_df.get('SI=F') if 'GC=F' in yf_df and 'SI=F' in yf_df else None, "#AB63FA")
         }
         render_grid(charts)
 
-    # --- Module 2: Commodity ---
     elif page == "⚒️ 2. Commodity":
-        st.subheader("International Futures (COMEX/NYMEX/CBOT)")
+        st.subheader("Global Commodity Trends")
         intl_c = {
-            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700"), "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0"),
-            "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333"), "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513"),
-            "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D"), "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4"),
-            "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700"), "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32"),
-            "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3"), "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA"),
-            "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00")
+            "Gold (COMEX)": (yf_df.get('GC=F'), "#FFD700"), "Silver (COMEX)": (yf_df.get('SI=F'), "#C0C0C0"),
+            "Copper (COMEX)": (yf_df.get('HG=F'), "#B87333"), "WTI Crude": (yf_df.get('CL=F'), "#8B4513"),
+            "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969"), "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513")
         }
         render_grid(intl_c)
 
-        st.markdown("---")
-        st.subheader("China Futures Real-Time (AKShare - SHFE/DCE/ZCE)")
-        cn_c = {
-            "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0"), "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9"),
-            "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899"), "SHFE Nickel": (mk_df.get('SHFE_Nickel'), "#708090"),
-            "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969"), "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513"),
-            "DCE Coke": (mk_df.get('DCE_Coke'), "#2F4F4F"), "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B"),
-            "ZCE Methanol": (mk_df.get('ZCE_Methanol'), "#4B0082"), "ZCE Sugar": (mk_df.get('ZCE_Sugar'), "#F8F8FF"),
-            "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32"), "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520"),
-            "EIA Crude Inv. (Mock)": (mk_df.get('EIA_Crude'), "#8B4513"), "EIA Gasoline Inv. (Mock)": (mk_df.get('EIA_Gasoline'), "#4682B4")
-        }
-        render_grid(cn_c)
-
-    # --- Module 3: FX & FI ---
     elif page == "💱 3. FX & FI":
-        st.subheader("Global FX & Sovereign Yield Curves")
+        st.subheader("FX & Yield Curves")
         fx_c = {
             "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B"), "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA"),
-            "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96"), "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF"),
-            "GBP/USD": (yf_df.get('GBPUSD=X'), "#8A2BE2"), "USD/CAD": (yf_df.get('CAD=X'), "#DC143C"),
-            "USD/INR": (yf_df.get('INR=X'), "#00BFFF"), "USD/BRL": (yf_df.get('BRL=X'), "#32CD32"),
-            "US 2Y Yield": (fr_df.get('DGS2'), "#696969"), "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000"),
-            "China 10Y Yield (AKShare)": (mk_df.get('China_10Y_Yield'), "#FF4B4B"), "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4")
+            "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000"), "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B")
         }
         render_grid(fx_c)
 
-    # --- Module 4: Equity Markets ---
     elif page == "📈 4. Equity Markets":
         st.subheader("Global Equity Indices")
         eq_c = {
-            "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96"), "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF"),
-            "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B"), "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF"),
-            "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00"), "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500"),
-            "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32"), "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA")
+            "S&P 500": (yf_df.get('^GSPC'), "#00CC96"), "Nasdaq 100": (yf_df.get('^NDX'), "#1E90FF"),
+            "Hang Seng": (yf_df.get('^HSI'), "#00BFFF"), "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00")
         }
         render_grid(eq_c)
         
         st.markdown("---")
-        st.subheader("Detailed Sector Performance")
-        # 资金轮动条形图也改为一行一图的大气展示
-        us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Consumer Staples", "Materials", "Industrials", "Health Care", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 21.8, 10.3, 8.0, -1.2, 6.5, -12.1]})
-        st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors YTD (%)", color="YTD (%)", color_continuous_scale="RdYlGn", height=450), use_container_width=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        hk_sec = pd.DataFrame({"Sector": ["HSCEI ETF", "China Internet", "CSI 300 HK", "HS China Ent", "HS Index ETF", "HS Tech ETF"], "YTD (%)": [-12.5, -10.0, -7.5, -5.2, -5.0, -2.5]})
-        st.plotly_chart(px.bar(hk_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="HK Sectors YTD (%)", color="YTD (%)", color_continuous_scale="RdYlGn", height=450), use_container_width=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        cn_sec = pd.DataFrame({"Sector": ["Tech", "CSI 500", "Real Estate", "Gaming", "Bank", "ChiNext", "Pharma", "Biotech", "5G", "Dividend", "Military", "Coal"], "YTD (%)": [9.3, 8.7, 5.8, 5.49, 3.1, 1.8, 4.8, -6.4, 0.5, 5.0, -0.27, -1.62]})
-        st.plotly_chart(px.bar(cn_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="CN Sectors YTD (%)", color="YTD (%)", color_continuous_scale="RdYlGn", height=450), use_container_width=True)
+        # Sector Charts also enhanced for visibility
+        us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Materials", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 10.3, 6.5, -12.1]})
+        st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors YTD (%)", template="plotly_dark", height=500), use_container_width=True)
