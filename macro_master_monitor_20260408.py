@@ -23,7 +23,7 @@ def fetch_global_data():
     start_date = end_date - datetime.timedelta(days=365 * 10)
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # A. Yahoo Finance (Fetch Full OHLC)
+    # A. Yahoo Finance
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -34,7 +34,6 @@ def fetch_global_data():
         yf_raw = yf.download(yf_tickers, period="10y", progress=False)
         for t in yf_tickers:
             try:
-                # Extract OHLC for each specific ticker
                 df = pd.DataFrame({
                     'Open': yf_raw['Open'][t],
                     'High': yf_raw['High'][t],
@@ -47,7 +46,7 @@ def fetch_global_data():
     except Exception as e:
         print(f"YF Error: {e}")
 
-    # B. Federal Reserve (FRED - Single Value)
+    # B. Federal Reserve (FRED)
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS'
@@ -64,7 +63,7 @@ def fetch_global_data():
     except Exception as e:
         print(f"FRED Error: {e}")
 
-    # C. AKShare (China Futures OHLC & Bond)
+    # C. AKShare (China Futures & Bond)
     cn_data = {}
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
@@ -83,7 +82,6 @@ def fetch_global_data():
         except:
             pass
             
-    # China 10Y Yield
     try:
         bond_df = ak.bond_zh_us_rate()
         bond_df['日期'] = pd.to_datetime(bond_df['日期'])
@@ -92,7 +90,6 @@ def fetch_global_data():
     except:
         pass
 
-    # Mock EIA Data
     dates = pd.date_range(start=start_date, end=end_date, freq='B')
     mock_crude = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
     mock_gas = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
@@ -102,106 +99,87 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 3. Interactive Chart Factory (K-Line + Resampling)
+# 3. Interactive Chart Factory
 # ==========================================
 def resample_data(df, timeframe):
-    """Dynamic Timeframe Aggregation"""
     if timeframe == "Daily" or df.empty:
         return df
-        
-    # 🚨 关键修复：适配最新版 Pandas 2.2+，月线规则从 'M' 改为 'ME'
+    
+    # Adapted for Pandas 2.2+ using 'ME' instead of 'M'
     rule = 'W' if timeframe == "Weekly" else 'ME' 
     
     if all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']):
-        # OHLC Resampling logic
         agg_dict = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}
         return df.resample(rule).agg(agg_dict).dropna()
     else:
-        # Single line resampling (just take the last value of the week/month)
         return df.resample(rule).last().dropna()
 
-def draw_chart(df_raw, title, base_color, timeframe):
+# 🚨 新增参数: show_ma 智能开关
+def draw_chart(df_raw, title, base_color, timeframe, show_ma=True):
     if df_raw is None or df_raw.empty or len(df_raw.dropna()) < 10:
         fig = go.Figure()
         fig.add_annotation(text="Awaiting Data Sync", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(size=16))
         fig.update_layout(title=title, height=550, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig
 
-    # Apply Timeframe Resampling
     df = resample_data(df_raw.copy(), timeframe)
-    
-    # Check if we have Candlestick data
     has_ohlc = all(c in df.columns for c in ['Open', 'High', 'Low', 'Close'])
     close_col = 'Close' if 'Close' in df.columns else df.columns[0]
     
-    # Calculate Institutional MAs based on current timeframe's Close
-    df['MA20'] = df[close_col].rolling(window=20).mean()
-    df['MA60'] = df[close_col].rolling(window=60).mean()
-    df['MA120'] = df[close_col].rolling(window=120).mean()
-    df['MA200'] = df[close_col].rolling(window=200).mean()
-
     fig = go.Figure()
 
-    # Smart Rendering: Candlestick vs Line
     if has_ohlc:
         fig.add_trace(go.Candlestick(
             x=df.index,
             open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
             name='K-Line',
-            increasing_line_color='#00CC96', # Green for Up
-            decreasing_line_color='#FF4B4B'  # Red for Down
+            increasing_line_color='#00CC96', decreasing_line_color='#FF4B4B'
         ))
     else:
         fig.add_trace(go.Scatter(x=df.index, y=df[close_col], mode='lines', name='Value', line=dict(color=base_color, width=2.5)))
 
-    # MA Overlays
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], mode='lines', name='MA20', line=dict(color='#FFD700', width=1.2)))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], mode='lines', name='MA60', line=dict(color='#FF4B4B', width=1.2)))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA120'], mode='lines', name='MA120', line=dict(color='#AB63FA', width=1.2, dash='dot'), visible='legendonly'))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA200'], mode='lines', name='MA200', line=dict(color='#4682B4', width=1.2, dash='dot'), visible='legendonly'))
+    # 🚨 判断是否需要绘制 MA 均线
+    if show_ma:
+        df['MA20'] = df[close_col].rolling(window=20).mean()
+        df['MA60'] = df[close_col].rolling(window=60).mean()
+        df['MA120'] = df[close_col].rolling(window=120).mean()
+        df['MA200'] = df[close_col].rolling(window=200).mean()
 
-    # Broker-level Interaction
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], mode='lines', name='MA20', line=dict(color='#FFD700', width=1.2)))
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], mode='lines', name='MA60', line=dict(color='#FF4B4B', width=1.2)))
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA120'], mode='lines', name='MA120', line=dict(color='#AB63FA', width=1.2, dash='dot'), visible='legendonly'))
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA200'], mode='lines', name='MA200', line=dict(color='#4682B4', width=1.2, dash='dot'), visible='legendonly'))
+
     fig.update_layout(
         title=dict(text=title, font=dict(size=20)),
         margin=dict(l=10, r=10, t=60, b=10),
         height=600,
         dragmode='pan',
-        xaxis=dict(
-            rangeslider=dict(visible=False), # Essential: Candlestick adds this by default, force it off
-            type="date",
-            showgrid=False,
-            zeroline=False
-        ),
-        yaxis=dict(
-            showgrid=True, 
-            gridcolor='rgba(128,128,128,0.15)',
-            zeroline=False,
-            side="right" 
-        ),
-        paper_bgcolor='rgba(0,0,0,0)', 
-        plot_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(rangeslider=dict(visible=False), type="date", showgrid=False, zeroline=False),
+        yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.15)', zeroline=False, side="right"),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     return fig
 
-def render_grid(charts_dict, current_timeframe):
+# 🚨 将 show_ma 参数透传下来
+def render_grid(charts_dict, current_timeframe, show_ma=True):
     for title, (df_data, color) in charts_dict.items():
         st.plotly_chart(
-            draw_chart(df_data, title, color, current_timeframe), 
+            draw_chart(df_data, title, color, current_timeframe, show_ma), 
             use_container_width=True, 
             config={'scrollZoom': True, 'displayModeBar': True, 'modeBarButtonsToRemove': ['lasso2d', 'select2d']}
         )
         st.markdown("<br><hr style='border: 0.5px solid #E0E0E0;'><br>", unsafe_allow_html=True)
 
 # ==========================================
-# 4. Sidebar Navigation & Timeframe Controls
+# 4. Sidebar Navigation
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=50)
     st.header("Macro Terminal")
     
-    # NEW: Timeframe Controller
     st.markdown("### ⏱️ Timeframe")
     selected_timeframe = st.radio("Resolution", ["Daily", "Weekly", "Monthly"], horizontal=True, label_visibility="collapsed")
     st.markdown("---")
@@ -236,11 +214,10 @@ if db:
     fr_df = db['fred']
     mk_df = db['mock']
 
-    # --- Module 1: Spreads & Ratios (Line Charts Automatically) ---
+    # --- Module 1: Spreads & Ratios ---
     if page == "📊 1. Spreads & Ratios":
         st.subheader("Credit, Liquidity & Yield Curve")
         
-        # Helper to compute spreads dynamically for DataFrames
         def calc_spread(df1, df2):
             if df1 is not None and df2 is not None and not df1.empty and not df2.empty:
                 return pd.DataFrame({'Close': df1['Close'] - df2['Close']}).dropna()
@@ -263,9 +240,10 @@ if db:
             "Gold-WTI Ratio": (calc_ratio(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF"),
             "Gold-Copper Ratio": (calc_ratio(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2")
         }
-        render_grid(charts, selected_timeframe)
+        # 🚨 明确传入 show_ma=False，彻底关闭模块1的均线系统
+        render_grid(charts, selected_timeframe, show_ma=False)
 
-    # --- Module 2: Commodity (Candlesticks Automatically) ---
+    # --- Module 2: Commodity ---
     elif page == "⚒️ 2. Commodity":
         st.subheader("International Futures (COMEX/NYMEX/CBOT)")
         intl_c = {
