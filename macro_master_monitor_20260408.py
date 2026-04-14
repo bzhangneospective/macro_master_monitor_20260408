@@ -109,7 +109,8 @@ def resample_data(df, timeframe):
     if timeframe == "Daily" or df.empty:
         return df
         
-    rule = 'W' if timeframe == "Weekly" else 'M' # Resample rule
+    # 🚨 关键修复：适配最新版 Pandas 2.2+，月线规则从 'M' 改为 'ME'
+    rule = 'W' if timeframe == "Weekly" else 'ME' 
     
     if all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']):
         # OHLC Resampling logic
