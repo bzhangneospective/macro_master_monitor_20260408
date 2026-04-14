@@ -132,8 +132,8 @@ def draw_chart(series_or_df, title, base_color):
         height=600,
         dragmode='pan', # Enables Left-Click Dragging to move through time
         xaxis=dict(
-            rangeslider=dict(visible=True), 
-            type="date",
+            rangeslider=dict(visible=False), 
+            type="date",False
             showgrid=False,
             zeroline=False,
             color="#888"
