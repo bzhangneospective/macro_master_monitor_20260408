@@ -101,7 +101,8 @@ def fetch_global_data():
 def draw_chart(series_or_df, title, base_color):
     if series_or_df is None or series_or_df.dropna().empty or len(series_or_df.dropna()) < 10:
         fig = go.Figure()
-        fig.add_annotation(text="Awaiting Data Sync", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="#888", size=16))
+        # 自适应字体颜色，去掉了强制白色
+        fig.add_annotation(text="Awaiting Data Sync", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(size=16))
         fig.update_layout(title=title, height=550, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig
 
@@ -125,27 +126,28 @@ def draw_chart(series_or_df, title, base_color):
     fig.add_trace(go.Scatter(x=df.index, y=df['MA120'], mode='lines', name='MA120', line=dict(color='#AB63FA', width=1.2, dash='dot'), visible='legendonly'))
     fig.add_trace(go.Scatter(x=df.index, y=df['MA200'], mode='lines', name='MA200', line=dict(color='#4682B4', width=1.2, dash='dot'), visible='legendonly'))
 
-    # Configuration for smooth panning and no rangeslider
+    # Configuration for smooth panning and auto-adapting colors
     fig.update_layout(
-        title=dict(text=title, font=dict(size=20, color="#FFFFFF")),
+        # 去掉 color="#FFFFFF" 限制，让标题颜色自适应
+        title=dict(text=title, font=dict(size=20)),
         margin=dict(l=10, r=10, t=60, b=10),
         height=600,
-        dragmode='pan', # Enables Left-Click Dragging to move through time
+        dragmode='pan', # Enables Left-Click Dragging
         xaxis=dict(
-            rangeslider=dict(visible=False), # Perfectly closed Rangeslider without syntax error
+            rangeslider=dict(visible=False), 
             type="date",
             showgrid=False,
-            zeroline=False,
-            color="#888"
+            zeroline=False
         ),
         yaxis=dict(
             showgrid=True, 
             gridcolor='rgba(128,128,128,0.15)',
             zeroline=False,
-            side="right", # Professional trading view style: Y-axis on the right
-            color="#888"
+            side="right" # Y-axis on the right
         ),
-        template="plotly_dark", # Dark theme for better contrast
+        # 去掉了强制黑色模板，全面拥抱 Streamlit 原生响应式主题
+        paper_bgcolor='rgba(0,0,0,0)', 
+        plot_bgcolor='rgba(0,0,0,0)',
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
@@ -153,18 +155,17 @@ def draw_chart(series_or_df, title, base_color):
 
 def render_grid(charts_dict):
     for title, (series, color) in charts_dict.items():
-        # config settings to ensure scrolling and panning feel native
         st.plotly_chart(
             draw_chart(series, title, color), 
             use_container_width=True, 
             config={
-                'scrollZoom': True,      # Zoom with mouse wheel
-                'displayModeBar': True,  # Show tools if needed
-                'modeBarButtonsToRemove': ['lasso2d', 'select2d'], # Clean UI
+                'scrollZoom': True,      
+                'displayModeBar': True,  
+                'modeBarButtonsToRemove': ['lasso2d', 'select2d'], 
                 'responsive': True
             }
         )
-        st.markdown("<br><hr style='border: 0.5px solid #333;'><br>", unsafe_allow_html=True)
+        st.markdown("<br><hr style='border: 0.5px solid #E0E0E0;'><br>", unsafe_allow_html=True)
 
 # ==========================================
 # 4. Sidebar Navigation
@@ -239,4 +240,4 @@ if db:
         
         st.markdown("---")
         us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Materials", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 10.3, 6.5, -12.1]})
-        st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors YTD (%)", template="plotly_dark", height=500), use_container_width=True)
+        st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors YTD (%)", height=500), use_container_width=True)
