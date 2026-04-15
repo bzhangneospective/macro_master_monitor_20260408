@@ -170,7 +170,8 @@ def draw_chart(df_raw, title, base_color, timeframe, show_ma=True):
 
     fig.update_layout(
         title=dict(
-            text=f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum: {mom_str}</span>",
+            # 🚨 在这里加入了明确的公式说明
+            text=f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum [(EMA9-EMA26)/EMA26]: {mom_str}</span>",
             font=dict(size=20)
         ),
         margin=dict(l=10, r=10, t=60, b=10), height=650, dragmode='pan',
