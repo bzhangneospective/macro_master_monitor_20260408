@@ -15,16 +15,13 @@ import traceback
 st.set_page_config(page_title="Macro Master Monitor", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
-# 2. Core Data Engine (MAX Period & OHLC)
+# 2. Core Data Engine (MAX History)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
-    # Unlock period to MAX for long-term cycle research
-    start_date = "1970-01-01" 
-    end_date = datetime.date.today()
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # A. Yahoo Finance (Period=Max)
+    # A. Yahoo Finance (Fetch Max History)
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -32,7 +29,6 @@ def fetch_global_data():
     ]
     yf_data = {}
     try:
-        # Using period="max" as requested for historical depth
         yf_raw = yf.download(yf_tickers, period="max", progress=False)
         for t in yf_tickers:
             try:
@@ -58,7 +54,6 @@ def fetch_global_data():
         fred = Fred(api_key=FRED_API_KEY)
         for ticker in fred_tickers:
             try:
-                # Fetching max historical data from FRED
                 series = fred.get_series(ticker)
                 fred_data[ticker] = pd.DataFrame({'Close': series}).ffill().bfill()
             except:
@@ -66,7 +61,7 @@ def fetch_global_data():
     except Exception as e:
         print(f"FRED Error: {e}")
 
-    # C. AKShare (China Futures)
+    # C. AKShare (China Data)
     cn_data = {}
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
@@ -95,18 +90,12 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 3. Analytics & Charting Factory
+# 3. Analytics & Pro Charting Factory
 # ==========================================
 def resample_data(df, timeframe):
     if df.empty or timeframe == "Daily":
         return df
-        
-    # Mapping timeframe to Pandas rules
-    if timeframe == "Weekly": rule = 'W'
-    elif timeframe == "Monthly": rule = 'ME'
-    elif timeframe == "MAX": rule = 'ME' # Force Monthly for MAX view
-    else: rule = 'ME'
-
+    rule = 'W' if timeframe == "Weekly" else 'ME'
     if all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']):
         agg_dict = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}
         return df.resample(rule).agg(agg_dict).dropna()
@@ -117,18 +106,17 @@ def draw_chart(df_raw, title, base_color, timeframe, show_ma=True):
     if df_raw is None or df_raw.empty:
         return go.Figure()
 
-    # 1. Resample based on selected timeframe
+    # 1. Resample
     df = resample_data(df_raw.copy(), timeframe)
     has_ohlc = all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']) and timeframe != "MAX"
     close_col = 'Close' if 'Close' in df.columns else df.columns[0]
     
-    # 2. Institutional Indicators (EMA Replacement)
-    # EMA Calculation logic
+    # 2. Indicators: EMA 20, 60, 120
     df['EMA20'] = df[close_col].ewm(span=20, adjust=False).mean()
     df['EMA60'] = df[close_col].ewm(span=60, adjust=False).mean()
     df['EMA120'] = df[close_col].ewm(span=120, adjust=False).mean()
     
-    # 3. Momentum Formula: (EMA9 - EMA26) / EMA26 * 100%
+    # 3. Momentum: (EMA9 - EMA26) / EMA26 * 100%
     ema9 = df[close_col].ewm(span=9, adjust=False).mean()
     ema26 = df[close_col].ewm(span=26, adjust=False).mean()
     mom_val = ((ema9 - ema26) / ema26 * 100).iloc[-1]
@@ -137,7 +125,7 @@ def draw_chart(df_raw, title, base_color, timeframe, show_ma=True):
 
     fig = go.Figure()
 
-    # 4. Smart Rendering (Force Line Chart for MAX mode)
+    # 4. Rendering
     if has_ohlc:
         fig.add_trace(go.Candlestick(
             x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
@@ -152,26 +140,48 @@ def draw_chart(df_raw, title, base_color, timeframe, show_ma=True):
         fig.add_trace(go.Scatter(x=df.index, y=df['EMA60'], mode='lines', name='EMA60', line=dict(color='#FF4B4B', width=1.2)))
         fig.add_trace(go.Scatter(x=df.index, y=df['EMA120'], mode='lines', name='EMA120', line=dict(color='#AB63FA', width=1.2, dash='dot')))
 
-    # 6. Dynamic Focus Window (X-axis limit: 180 points)
-    # We keep all data but focus the view on the most recent points
-    if len(df) > 180 and timeframe != "MAX":
-        start_view = df.index[-180]
-        end_view = df.index[-1]
-        range_setting = [start_view, end_view]
-    else:
-        range_setting = None
+    # 6. Y-Axis Auto-Scaling & X-Axis Focus Logic (180 Points)
+    y_range = None
+    x_range = None
+    
+    if len(df) > 10:
+        # 默认聚焦最近的 180 根 K 线
+        visible_points = 180 if len(df) > 180 else len(df)
+        last_df = df.iloc[-visible_points:]
+        
+        # 计算该视窗内的最高/最低价实现 Y 轴自适应
+        if has_ohlc:
+            y_min = last_df['Low'].min()
+            y_max = last_df['High'].max()
+        else:
+            y_min = last_df[close_col].min()
+            y_max = last_df[close_col].max()
+            
+        # 留出 5% 的边距空间
+        padding = (y_max - y_min) * 0.05
+        y_range = [y_min - padding, y_max + padding]
+        x_range = [last_df.index[0], last_df.index[-1]]
+
+    # MAX 模式下取消视窗限制，展示全局趋势
+    if timeframe == "MAX":
+        x_range = None
+        y_range = None
 
     fig.update_layout(
         title=dict(
             text=f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum: {mom_str}</span>",
             font=dict(size=20)
         ),
-        margin=dict(l=10, r=10, t=60, b=10), height=600, dragmode='pan',
+        margin=dict(l=10, r=10, t=60, b=10), height=650, dragmode='pan',
         xaxis=dict(
             rangeslider=dict(visible=False), type="date", showgrid=False,
-            range=range_setting # Locks view to ~180 candles
+            range=x_range
         ),
-        yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.15)', zeroline=False, side="right"),
+        yaxis=dict(
+            showgrid=True, gridcolor='rgba(128,128,128,0.15)', zeroline=False, side="right",
+            range=y_range,
+            fixedrange=False # 🚨 关键：允许用户在右侧 Y 轴上手动拉伸高度
+        ),
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
@@ -188,91 +198,58 @@ def render_grid(charts_dict, current_timeframe, show_ma=True):
         st.markdown("<br><hr style='border: 0.5px solid #E0E0E0;'><br>", unsafe_allow_html=True)
 
 # ==========================================
-# 4. Sidebar & UI Logic
+# 4. Sidebar & Dashboard Execution
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=50)
     st.header("Macro Terminal")
-    
     st.markdown("### ⏱️ Timeframe")
-    # Added "MAX" option for long-term historical view
     selected_timeframe = st.radio("Resolution", ["Daily", "Weekly", "Monthly", "MAX"], horizontal=True, label_visibility="collapsed")
     st.markdown("---")
-    
-    page = st.radio(
-        "📂 Navigation", 
-        ["📊 1. Spreads & Ratios", "⚒️ 2. Commodity", "💱 3. FX & FI", "📈 4. Equity Markets"]
-    )
-    
+    page = st.radio("📂 Navigation", ["📊 1. Spreads & Ratios", "⚒️ 2. Commodity", "💱 3. FX & FI", "📈 4. Equity Markets"])
     st.markdown("---")
-    if st.button("🔄 Force Sync (MAX History)", type="primary"):
+    if st.button("🔄 Force Sync (Full History)", type="primary"):
         fetch_global_data.clear()
         st.rerun()
 
     try:
         db = fetch_global_data()
-        st.success("✅ Engine: EMA & Momentum Live")
-        st.caption(f"Sync Time: {db['time']}")
+        st.success("✅ Engine: OHLC & Momentum Live")
     except:
-        st.error("Engine Offline")
         db = None
 
-# ==========================================
-# 5. Dashboard Execution
-# ==========================================
 st.title(f"🏛️ Master Monitor - {selected_timeframe}")
 
 if db:
-    yf_df = db['yf']
-    fr_df = db['fred']
-    mk_df = db['mock']
+    yf_df = db['yf']; fr_df = db['fred']; mk_df = db['mock']
 
     if page == "📊 1. Spreads & Ratios":
-        st.subheader("Credit & Liquidity Performance")
         def calc_spread(df1, df2):
             if df1 is not None and df2 is not None:
                 return pd.DataFrame({'Close': df1['Close'] - df2['Close']}).dropna()
             return None
-        def calc_ratio(df1, df2):
-            if df1 is not None and df2 is not None:
-                return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna()
-            return None
-
         charts = {
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B"),
-            "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C"),
             "10Y-2Y Spread": (calc_spread(fr_df.get('DGS10'), fr_df.get('DGS2')), "#FF4B4B"),
-            "SOFR-EFFR Premium": (calc_spread(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96"),
-            "Gold-Silver Ratio": (calc_ratio(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA")
+            "SOFR-EFFR Premium": (calc_spread(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96")
         }
         render_grid(charts, selected_timeframe, show_ma=False)
 
     elif page == "⚒️ 2. Commodity":
-        st.subheader("Global Hard Assets")
         intl_c = {
-            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700"), "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0"),
-            "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333"), "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513")
+            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700"), "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513"),
+            "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969"), "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513")
         }
         render_grid(intl_c, selected_timeframe)
 
-        st.markdown("---")
-        st.subheader("China Futures (AKShare)")
-        cn_c = {
-            "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0"), "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969"),
-            "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513")
-        }
-        render_grid(cn_c, selected_timeframe)
-
     elif page == "💱 3. FX & FI":
-        st.subheader("Rates & Currencies")
         fx_c = {
-            "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B"), "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA"),
-            "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000"), "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B")
+            "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B"), "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000"),
+            "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B")
         }
         render_grid(fx_c, selected_timeframe)
 
     elif page == "📈 4. Equity Markets":
-        st.subheader("Equity Benchmarks")
         eq_c = {
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96"), "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF"),
             "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF")
