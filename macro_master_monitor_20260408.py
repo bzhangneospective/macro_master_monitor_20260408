@@ -86,6 +86,11 @@ def fetch_global_data():
         cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
     except:
         pass
+
+    # Mock EIA Data
+    dates = pd.date_range(start=datetime.date.today() - datetime.timedelta(days=365*10), end=datetime.date.today(), freq='B')
+    cn_data['EIA_Crude'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
+    cn_data['EIA_Gasoline'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
     
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
@@ -145,11 +150,9 @@ def draw_chart(df_raw, title, base_color, timeframe, show_ma=True):
     x_range = None
     
     if len(df) > 10:
-        # 默认聚焦最近的 180 根 K 线
         visible_points = 180 if len(df) > 180 else len(df)
         last_df = df.iloc[-visible_points:]
         
-        # 计算该视窗内的最高/最低价实现 Y 轴自适应
         if has_ohlc:
             y_min = last_df['Low'].min()
             y_max = last_df['High'].max()
@@ -157,12 +160,10 @@ def draw_chart(df_raw, title, base_color, timeframe, show_ma=True):
             y_min = last_df[close_col].min()
             y_max = last_df[close_col].max()
             
-        # 留出 5% 的边距空间
         padding = (y_max - y_min) * 0.05
         y_range = [y_min - padding, y_max + padding]
         x_range = [last_df.index[0], last_df.index[-1]]
 
-    # MAX 模式下取消视窗限制，展示全局趋势
     if timeframe == "MAX":
         x_range = None
         y_range = None
@@ -180,7 +181,7 @@ def draw_chart(df_raw, title, base_color, timeframe, show_ma=True):
         yaxis=dict(
             showgrid=True, gridcolor='rgba(128,128,128,0.15)', zeroline=False, side="right",
             range=y_range,
-            fixedrange=False # 🚨 关键：允许用户在右侧 Y 轴上手动拉伸高度
+            fixedrange=False
         ),
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
         hovermode="x unified",
@@ -215,43 +216,100 @@ with st.sidebar:
     try:
         db = fetch_global_data()
         st.success("✅ Engine: OHLC & Momentum Live")
+        st.caption(f"Sync Time: {db['time']}")
     except:
         db = None
 
+# ==========================================
+# 5. Main Terminal Layout (FULL DATA RESTORED)
+# ==========================================
 st.title(f"🏛️ Master Monitor - {selected_timeframe}")
 
 if db:
     yf_df = db['yf']; fr_df = db['fred']; mk_df = db['mock']
 
     if page == "📊 1. Spreads & Ratios":
+        st.subheader("Credit, Liquidity & Yield Curve")
         def calc_spread(df1, df2):
-            if df1 is not None and df2 is not None:
+            if df1 is not None and df2 is not None and not df1.empty and not df2.empty:
                 return pd.DataFrame({'Close': df1['Close'] - df2['Close']}).dropna()
             return None
+        def calc_ratio(df1, df2):
+            if df1 is not None and df2 is not None and not df1.empty and not df2.empty:
+                return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna()
+            return None
+
         charts = {
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B"),
-            "10Y-2Y Spread": (calc_spread(fr_df.get('DGS10'), fr_df.get('DGS2')), "#FF4B4B"),
-            "SOFR-EFFR Premium": (calc_spread(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96")
+            "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C"),
+            "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500"),
+            "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700"),
+            "10Y-2Y Spread (Recession Indicator)": (calc_spread(fr_df.get('DGS10'), fr_df.get('DGS2')), "#FF4B4B"),
+            "10Y-3M Spread (Fed Target)": (calc_spread(fr_df.get('DGS10'), fr_df.get('DGS3MO')), "#DC143C"),
+            "SOFR-EFFR Premium": (calc_spread(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96"),
+            "Gold-Silver Ratio": (calc_ratio(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA"),
+            "Gold-WTI Ratio": (calc_ratio(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF"),
+            "Gold-Copper Ratio": (calc_ratio(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2")
         }
         render_grid(charts, selected_timeframe, show_ma=False)
 
     elif page == "⚒️ 2. Commodity":
+        st.subheader("International Futures (COMEX/NYMEX/CBOT)")
         intl_c = {
-            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700"), "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513"),
-            "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969"), "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513")
+            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700"), "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0"),
+            "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333"), "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513"),
+            "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D"), "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4"),
+            "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700"), "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32"),
+            "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3"), "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA"),
+            "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00")
         }
         render_grid(intl_c, selected_timeframe)
 
+        st.markdown("---")
+        st.subheader("China Futures Real-Time (AKShare)")
+        cn_c = {
+            "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0"), "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9"),
+            "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899"), "SHFE Nickel": (mk_df.get('SHFE_Nickel'), "#708090"),
+            "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969"), "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513"),
+            "DCE Coke": (mk_df.get('DCE_Coke'), "#2F4F4F"), "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B"),
+            "ZCE Methanol": (mk_df.get('ZCE_Methanol'), "#4B0082"), "ZCE Sugar": (mk_df.get('ZCE_Sugar'), "#F8F8FF"),
+            "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32"), "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520"),
+            "EIA Crude Inv. (Mock)": (mk_df.get('EIA_Crude'), "#8B4513"), "EIA Gasoline Inv. (Mock)": (mk_df.get('EIA_Gasoline'), "#4682B4")
+        }
+        render_grid(cn_c, selected_timeframe)
+
     elif page == "💱 3. FX & FI":
+        st.subheader("Global FX & Sovereign Yield Curves")
         fx_c = {
-            "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B"), "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000"),
-            "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B")
+            "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B"), "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA"),
+            "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96"), "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF"),
+            "GBP/USD": (yf_df.get('GBPUSD=X'), "#8A2BE2"), "USD/CAD": (yf_df.get('CAD=X'), "#DC143C"),
+            "USD/INR": (yf_df.get('INR=X'), "#00BFFF"), "USD/BRL": (yf_df.get('BRL=X'), "#32CD32"),
+            "US 2Y Yield": (fr_df.get('DGS2'), "#696969"), "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000"),
+            "US 30Y Yield": (fr_df.get('DGS30'), "#800000"),
+            "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B"), 
+            "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4")
         }
         render_grid(fx_c, selected_timeframe)
 
     elif page == "📈 4. Equity Markets":
+        st.subheader("Global Equity Indices")
         eq_c = {
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96"), "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF"),
-            "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF")
+            "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B"), "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF"),
+            "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00"), "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500"),
+            "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32"), "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA")
         }
         render_grid(eq_c, selected_timeframe)
+        
+        st.markdown("---")
+        st.subheader("Detailed Sector Performance")
+        
+        us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Consumer Staples", "Materials", "Industrials", "Health Care", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 21.8, 10.3, 8.0, -1.2, 6.5, -12.1]})
+        st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors YTD (%)", height=450), use_container_width=True)
+        
+        hk_sec = pd.DataFrame({"Sector": ["HSCEI ETF", "China Internet", "CSI 300 HK", "HS China Ent", "HS Index ETF", "HS Tech ETF"], "YTD (%)": [-12.5, -10.0, -7.5, -5.2, -5.0, -2.5]})
+        st.plotly_chart(px.bar(hk_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="HK Sectors YTD (%)", height=450), use_container_width=True)
+        
+        cn_sec = pd.DataFrame({"Sector": ["Tech", "CSI 500", "Real Estate", "Gaming", "Bank", "ChiNext", "Pharma", "Biotech", "5G", "Dividend", "Military", "Coal"], "YTD (%)": [9.3, 8.7, 5.8, 5.49, 3.1, 1.8, 4.8, -6.4, 0.5, 5.0, -0.27, -1.62]})
+        st.plotly_chart(px.bar(cn_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="CN Sectors YTD (%)", height=500), use_container_width=True)
