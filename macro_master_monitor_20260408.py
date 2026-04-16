@@ -10,9 +10,34 @@ from fredapi import Fred
 import traceback
 
 # ==========================================
-# 1. Page Configuration
+# 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V2.0", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V2.1", layout="wide", initial_sidebar_state="expanded")
+
+# 注入 CSS 抹平边距，锁定页面不产生滚动条
+st.markdown("""
+    <style>
+        /* 移除顶部和底部的巨大空隙 */
+        .block-container {
+            padding-top: 1rem;
+            padding-bottom: 0rem;
+            max-width: 100%;
+        }
+        /* 隐藏 Streamlit 原生装饰栏 */
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        /* 针对 Tab 按钮的样式优化 */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 24px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            height: 40px;
+            white-space: pre-wrap;
+            font-size: 16px;
+            font-weight: 600;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # ==========================================
 # 2. Institutional Data Engine (MAX Period)
@@ -21,7 +46,6 @@ st.set_page_config(page_title="Macro Terminal V2.0", layout="wide", initial_side
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # A. Global Equities & Commodities (MAX Period)
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -40,7 +64,6 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # B. Federal Reserve (FRED Max)
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS'
@@ -55,14 +78,13 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # C. AKShare (China Futures & Bond)
-    cn_data = {}
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
         'SHFE_Zinc': 'zn0', 'SHFE_Nickel': 'ni0', 'SHFE_Rebar': 'rb0',
         'DCE_IronOre': 'i0', 'DCE_Coke': 'j0', 'DCE_SoybeanMeal': 'm0', 'DCE_SoybeanOil': 'y0',
         'ZCE_Sugar': 'SR0', 'ZCE_Cotton': 'CF0', 'ZCE_PTA': 'TA0', 'ZCE_Methanol': 'MA0'
     }
+    cn_data = {}
     for name, symbol in ak_symbols.items():
         try:
             df = ak.futures_zh_daily_sina(symbol=symbol)
@@ -97,10 +119,7 @@ def resample_data(df, timeframe):
     return df.resample(rule).last().dropna()
 
 def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
-    if df_raw is None or df_raw.empty: 
-        fig = go.Figure()
-        fig.update_layout(title="No Data Available", template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        return fig
+    if df_raw is None or df_raw.empty: return go.Figure()
     
     df = resample_data(df_raw.copy(), timeframe)
     has_ohlc = all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']) and timeframe != "MAX"
@@ -147,7 +166,9 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
             text=f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum [(EMA9-EMA26)/EMA26]: {mom_str}</span>",
             font=dict(size=24)
         ),
-        margin=dict(l=10, r=10, t=60, b=10), height=750, dragmode='pan', # Set to 750 so sector charts fit nicely below
+        margin=dict(l=10, r=10, t=60, b=10), 
+        height=680, # 锁定高度确保不触发滚动条
+        dragmode='pan', 
         template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
         xaxis=dict(rangeslider=dict(visible=False), type="date", showgrid=False, range=x_range),
         yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.15)', side="right", range=y_range, fixedrange=False),
@@ -163,10 +184,8 @@ with st.sidebar:
     st.title("Macro Terminal")
     st.markdown("---")
     
-    # Level 1: Category
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
-    # 🚨 FULL ASSET LIST RESTORED
     asset_list = []
     if page == "📊 Spreads & Ratios": 
         asset_list = [
@@ -193,7 +212,6 @@ with st.sidebar:
             "SSE Composite", "KOSPI (^KS11)", "Taiwan (^TWII)", "Semiconductor (^SOX)"
         ]
     
-    # Level 2: Asset Selection
     selected_asset = st.radio("🎯 Select Asset", asset_list)
     
     st.markdown("---")
@@ -205,28 +223,26 @@ with st.sidebar:
         st.rerun()
 
     db = fetch_global_data()
-    if db: st.success("✅ Engine Live")
 
 # ==========================================
-# 5. Main Execution Area (Bloomberg Canvas)
+# 5. Main Execution (Dual-Tab System)
 # ==========================================
 if db:
     yf_df = db['yf']; fr_df = db['fred']; mk_df = db['mock']
     
+    # Helper Functions
     def safe_sub(df1, df2):
         if df1 is not None and df2 is not None and not df1.empty and not df2.empty:
             return pd.DataFrame({'Close': df1['Close'] - df2['Close']}).dropna()
         return None
-
     def safe_div(df1, df2):
         if df1 is not None and df2 is not None and not df1.empty and not df2.empty:
             return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna()
         return None
 
-    # 🚨 FULL EXPLICIT MAPPING RESTORED (No Shortcuts)
+    # Mapping Logic
     def get_data(asset_name):
         mapping = {
-            # Spreads & Ratios (No MA)
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False),
             "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C", False),
             "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500", False),
@@ -237,8 +253,6 @@ if db:
             "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False),
             "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False),
             "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False),
-            
-            # Commodities (With MA)
             "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True),
             "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True),
             "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True),
@@ -264,8 +278,6 @@ if db:
             "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True),
             "EIA Crude Inv. (Mock)": (mk_df.get('EIA_Crude'), "#8B4513", True),
             "EIA Gasoline Inv. (Mock)": (mk_df.get('EIA_Gasoline'), "#4682B4", True),
-
-            # FX & FI (With MA)
             "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B", True),
             "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True),
             "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96", True),
@@ -279,8 +291,6 @@ if db:
             "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True),
             "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B", True),
             "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True),
-
-            # Equity Markets (With MA)
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True),
             "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True),
             "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B", True),
@@ -294,23 +304,27 @@ if db:
 
     target_df, color, use_ma = get_data(selected_asset)
     
-    st.plotly_chart(
-        draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma),
-        use_container_width=True,
-        config={'scrollZoom': True, 'displayModeBar': True} # 滚轮缩放永不干涉网页滚动
-    )
+    # 🚨 DUAL-TAB SYSTEM
+    tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector Performance"])
 
-    # 🚨 FULL SECTOR DATA RESTORED
-    if page == "📈 Equity Markets":
-        st.markdown("---")
-        st.subheader("Detailed Sector Performance (YTD)")
+    with tab1:
+        # 这个 Tab 只有一张图，锁死视窗，滚轮缩放绝不影响页面
+        st.plotly_chart(
+            draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma),
+            use_container_width=True,
+            config={'scrollZoom': True, 'displayModeBar': True}
+        )
+
+    with tab2:
+        # 板块分析独立放置，避免主页面臃肿
+        st.subheader("Global Sector Performance (YTD %)")
         c1, c2, c3 = st.columns(3)
         with c1:
             us_sec = pd.DataFrame({"Sector": ["Energy", "Shipping", "Consumer Staples", "Materials", "Industrials", "Health Care", "Software", "Semiconductors"], "YTD (%)": [25.7, 23.3, 21.8, 10.3, 8.0, -1.2, 6.5, -12.1]})
-            st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors", template="plotly_dark", height=400), use_container_width=True)
+            st.plotly_chart(px.bar(us_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="US Sectors", template="plotly_dark", height=450), use_container_width=True)
         with c2:
             hk_sec = pd.DataFrame({"Sector": ["HSCEI ETF", "China Internet", "CSI 300 HK", "HS China Ent", "HS Index ETF", "HS Tech ETF"], "YTD (%)": [-12.5, -10.0, -7.5, -5.2, -5.0, -2.5]})
-            st.plotly_chart(px.bar(hk_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="HK Sectors", template="plotly_dark", height=400), use_container_width=True)
+            st.plotly_chart(px.bar(hk_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="HK Sectors", template="plotly_dark", height=450), use_container_width=True)
         with c3:
             cn_sec = pd.DataFrame({"Sector": ["Tech", "CSI 500", "Real Estate", "Gaming", "Bank", "ChiNext", "Pharma", "Biotech", "5G", "Dividend", "Military", "Coal"], "YTD (%)": [9.3, 8.7, 5.8, 5.49, 3.1, 1.8, 4.8, -6.4, 0.5, 5.0, -0.27, -1.62]})
-            st.plotly_chart(px.bar(cn_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="CN Sectors", template="plotly_dark", height=400), use_container_width=True)
+            st.plotly_chart(px.bar(cn_sec.sort_values("YTD (%)"), x="YTD (%)", y="Sector", orientation='h', title="CN Sectors", template="plotly_dark", height=500), use_container_width=True)
