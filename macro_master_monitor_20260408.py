@@ -12,7 +12,7 @@ from fredapi import Fred
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V2.7 (X-Ray Mode)", 
+    page_title="Macro Terminal V2.8", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -101,58 +101,36 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 2.1 Decoupled Heatmap Data Pipeline (V2.7 X-Ray)
+# 2.1 Decoupled Heatmap Data Pipeline (V2.8 X-Ray)
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_gics_heatmap_raw():
-    """全景覆盖：标普 500 所有板块及子板块代理 ETF"""
     hierarchy = [
-        # 科技 (29%)
         ('Technology', 'Software (IGV)', 'IGV', 12.0),
         ('Technology', 'Semiconductors (SOXX)', 'SOXX', 11.0),
         ('Technology', 'Hardware/Equip (IYW)', 'IYW', 6.0),
-        
-        # 金融 (13%)
         ('Financials', 'Banks (KBE)', 'KBE', 4.0),
         ('Financials', 'Regional Banks (KRE)', 'KRE', 2.0),
         ('Financials', 'Broker/Dealers (IAI)', 'IAI', 3.0),
         ('Financials', 'Insurance (KIE)', 'KIE', 4.0),
-        
-        # 医疗保健 (13%)
         ('Health Care', 'Biotech (IBB)', 'IBB', 4.0),
         ('Health Care', 'Medical Devices (IHI)', 'IHI', 4.0),
         ('Health Care', 'Pharma/Providers (PPH)', 'PPH', 5.0),
-        
-        # 非必需消费 (11%)
         ('Cons Disc', 'Retail (XRT)', 'XRT', 6.0),
         ('Cons Disc', 'Homebuilders (ITB)', 'ITB', 2.0),
         ('Cons Disc', 'Broad Disc (XLY)', 'XLY', 3.0),
-        
-        # 通信服务 (9%)
         ('Comm Svcs', 'Internet (FDN)', 'FDN', 6.0),
         ('Comm Svcs', 'Telecom/Media (IYZ)', 'IYZ', 3.0),
-        
-        # 工业 (9%)
         ('Industrials', 'Aero & Defense (ITA)', 'ITA', 3.0),
         ('Industrials', 'Transport (IYT)', 'IYT', 3.0),
         ('Industrials', 'Broad Industrials (XLI)', 'XLI', 3.0),
-        
-        # 必需消费 (6%)
         ('Cons Staples', 'Food & Bev (PBJ)', 'PBJ', 3.0),
         ('Cons Staples', 'Broad Staples (XLP)', 'XLP', 3.0),
-        
-        # 能源 (4%)
         ('Energy', 'E&P (XOP)', 'XOP', 2.0),
         ('Energy', 'Oil Services (OIH)', 'OIH', 2.0),
-        
-        # 原材料 (2.5%)
         ('Materials', 'Metals & Mining (XME)', 'XME', 1.0),
         ('Materials', 'Broad Materials (XLB)', 'XLB', 1.5),
-        
-        # 房地产 (2.5%)
         ('Real Estate', 'Real Estate (VNQ)', 'VNQ', 2.5),
-        
-        # 公用事业 (2.5%)
         ('Utilities', 'Utilities (XLU)', 'XLU', 2.5)
     ]
     tickers = [item[2] for item in hierarchy]
@@ -163,7 +141,6 @@ def fetch_gics_heatmap_raw():
         return pd.DataFrame(), hierarchy
 
 def calculate_heatmap_performance(raw_df, hierarchy, lookback):
-    """根据选择的 Lookback 动态计算表现"""
     if raw_df.empty: return pd.DataFrame()
     
     tree_rows = []
@@ -246,7 +223,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 # 4. Bloomberg Dashboard UI
 # ==========================================
 with st.sidebar:
-    st.title("Macro Terminal V2.7")
+    st.title("Macro Terminal V2.8")
     page = st.selectbox("📂 Category", ["📈 Equity Markets", "📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI"])
     
     asset_list = []
@@ -290,9 +267,11 @@ if db:
         with tab1:
             st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_res, show_ma=use_ma), use_container_width=True)
         with tab2:
-            col_lk, col_empty = st.columns([1, 3])
-            with col_lk:
-                lookback = st.select_slider("Lookback Window", options=["1D", "5D", "1M", "YTD"], value="YTD")
+            # --- V2.8 UI 改造：紧凑布局 ---
+            c_empty, c_ctrl = st.columns([5, 2])
+            with c_ctrl:
+                # 使用紧凑的横向 radio 替代 Slider，靠右对齐与 Colorbar 呼应
+                lookback = st.radio("Lookback Window", ["1D", "5D", "1M", "YTD"], horizontal=True, label_visibility="collapsed", index=3)
             
             raw_h_df, hierarchy = fetch_gics_heatmap_raw()
             df_tree = calculate_heatmap_performance(raw_h_df, hierarchy, lookback)
@@ -308,9 +287,17 @@ if db:
                 )
                 
                 fig_tree.update_layout(
-                    height=490, margin=dict(l=0, r=0, t=30, b=0),
+                    height=490, 
+                    margin=dict(l=0, r=0, t=10, b=0), # 压榨顶部留白
                     template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)',
-                    coloraxis_colorbar=dict(title=f"Perf ({lookback}) %")
+                    # 优化 Colorbar：变得瘦长，标题变为纯动态区间文本
+                    coloraxis_colorbar=dict(
+                        title=dict(text=f"{lookback} (%)", side="top"),
+                        thickness=12,
+                        len=0.75,
+                        yanchor="middle",
+                        y=0.5
+                    )
                 )
                 
                 fig_tree.update_traces(
