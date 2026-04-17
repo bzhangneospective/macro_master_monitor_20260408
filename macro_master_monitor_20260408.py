@@ -12,7 +12,7 @@ from fredapi import Fred
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V2.4", 
+    page_title="Macro Terminal V2.5", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -337,11 +337,15 @@ if db:
                     height=490, margin=dict(l=0, r=0, t=30, b=0),
                     template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
                 )
+                
+                # V2.5 Fix: Explicit customdata assignment for reliable text rendering
                 fig_tree.update_traces(
-                    texttemplate="<b>%{label}</b><br>%{color:.2f}%",
-                    hovertemplate="<b>%{label}</b><br>YTD: %{color:.2f}%<extra></extra>",
+                    customdata=df_tree[['YTD (%)']],
+                    texttemplate="<b>%{label}</b><br>%{customdata[0]:.2f}%",
+                    hovertemplate="<b>%{label}</b><br>YTD: %{customdata[0]:.2f}%<extra></extra>",
                     root_color="#000000"
                 )
+                
                 st.plotly_chart(fig_tree, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
             else:
                 st.warning("Fetching GICS component data...")
