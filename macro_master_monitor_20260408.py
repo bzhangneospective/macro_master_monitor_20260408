@@ -167,7 +167,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
             font=dict(size=24)
         ),
         margin=dict(l=10, r=10, t=60, b=10), 
-        height=490, # 锁定高度确保不触发滚动条
+        height=500, # 锁定高度确保不触发滚动条
         dragmode='pan', 
         template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
         xaxis=dict(rangeslider=dict(visible=False), type="date", showgrid=False, range=x_range),
