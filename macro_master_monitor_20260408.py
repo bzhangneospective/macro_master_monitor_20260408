@@ -12,7 +12,7 @@ from fredapi import Fred
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V2.6", 
+    page_title="Macro Terminal V2.7 (X-Ray Mode)", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -101,32 +101,62 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 2.1 Decoupled Heatmap Data Pipeline (V2.6 Focus)
+# 2.1 Decoupled Heatmap Data Pipeline (V2.7 X-Ray)
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_gics_heatmap_raw():
-    """获取过去一年的全量收盘价，为动态切片提供支持"""
+    """全景覆盖：标普 500 所有板块及子板块代理 ETF"""
     hierarchy = [
-        ('Technology', 'Software (IGV)', 'IGV', 15.0),
-        ('Technology', 'Semiconductors (SOXX)', 'SOXX', 10.0),
-        ('Technology', 'Hardware/Broad (XLK)', 'XLK', 5.0), 
-        ('Financials', 'Regional Banks (KRE)', 'KRE', 3.0),
-        ('Financials', 'Diversified Banks (KBE)', 'KBE', 5.0),
-        ('Financials', 'Broker-Dealers (IAI)', 'IAI', 2.0),
-        ('Financials', 'Insurance (KIE)', 'KIE', 3.1),
-        ('Health Care', 'Health Care (XLV)', 'XLV', 12.6),
-        ('Consumer Disc', 'Consumer Disc (XLY)', 'XLY', 10.6),
-        ('Comm Services', 'Comm Services (XLC)', 'XLC', 8.9),
-        ('Industrials', 'Industrials (XLI)', 'XLI', 8.8),
-        ('Cons Staples', 'Cons Staples (XLP)', 'XLP', 6.1),
-        ('Energy', 'Energy (XLE)', 'XLE', 3.9),
-        ('Utilities', 'Utilities (XLU)', 'XLU', 2.5),
-        ('Materials', 'Materials (XLB)', 'XLB', 2.4),
-        ('Real Estate', 'Real Estate (XLRE)', 'XLRE', 2.3)
+        # 科技 (29%)
+        ('Technology', 'Software (IGV)', 'IGV', 12.0),
+        ('Technology', 'Semiconductors (SOXX)', 'SOXX', 11.0),
+        ('Technology', 'Hardware/Equip (IYW)', 'IYW', 6.0),
+        
+        # 金融 (13%)
+        ('Financials', 'Banks (KBE)', 'KBE', 4.0),
+        ('Financials', 'Regional Banks (KRE)', 'KRE', 2.0),
+        ('Financials', 'Broker/Dealers (IAI)', 'IAI', 3.0),
+        ('Financials', 'Insurance (KIE)', 'KIE', 4.0),
+        
+        # 医疗保健 (13%)
+        ('Health Care', 'Biotech (IBB)', 'IBB', 4.0),
+        ('Health Care', 'Medical Devices (IHI)', 'IHI', 4.0),
+        ('Health Care', 'Pharma/Providers (PPH)', 'PPH', 5.0),
+        
+        # 非必需消费 (11%)
+        ('Cons Disc', 'Retail (XRT)', 'XRT', 6.0),
+        ('Cons Disc', 'Homebuilders (ITB)', 'ITB', 2.0),
+        ('Cons Disc', 'Broad Disc (XLY)', 'XLY', 3.0),
+        
+        # 通信服务 (9%)
+        ('Comm Svcs', 'Internet (FDN)', 'FDN', 6.0),
+        ('Comm Svcs', 'Telecom/Media (IYZ)', 'IYZ', 3.0),
+        
+        # 工业 (9%)
+        ('Industrials', 'Aero & Defense (ITA)', 'ITA', 3.0),
+        ('Industrials', 'Transport (IYT)', 'IYT', 3.0),
+        ('Industrials', 'Broad Industrials (XLI)', 'XLI', 3.0),
+        
+        # 必需消费 (6%)
+        ('Cons Staples', 'Food & Bev (PBJ)', 'PBJ', 3.0),
+        ('Cons Staples', 'Broad Staples (XLP)', 'XLP', 3.0),
+        
+        # 能源 (4%)
+        ('Energy', 'E&P (XOP)', 'XOP', 2.0),
+        ('Energy', 'Oil Services (OIH)', 'OIH', 2.0),
+        
+        # 原材料 (2.5%)
+        ('Materials', 'Metals & Mining (XME)', 'XME', 1.0),
+        ('Materials', 'Broad Materials (XLB)', 'XLB', 1.5),
+        
+        # 房地产 (2.5%)
+        ('Real Estate', 'Real Estate (VNQ)', 'VNQ', 2.5),
+        
+        # 公用事业 (2.5%)
+        ('Utilities', 'Utilities (XLU)', 'XLU', 2.5)
     ]
     tickers = [item[2] for item in hierarchy]
     try:
-        # 请求 1y 数据确保覆盖 1D/1W/1M/YTD
         raw_df = yf.download(tickers, period="1y", progress=False)['Close']
         return raw_df, hierarchy
     except:
@@ -146,21 +176,16 @@ def calculate_heatmap_performance(raw_df, hierarchy, lookback):
             
             try:
                 price_now = s_data.iloc[-1]
-                # 动态指针逻辑
-                if lookback == "1D":
-                    price_old = s_data.iloc[-2]
-                elif lookback == "5D":
-                    price_old = s_data.iloc[-min(len(s_data), 6)]
-                elif lookback == "1M":
-                    price_old = s_data.iloc[-min(len(s_data), 22)]
+                if lookback == "1D": price_old = s_data.iloc[-2]
+                elif lookback == "5D": price_old = s_data.iloc[-min(len(s_data), 6)]
+                elif lookback == "1M": price_old = s_data.iloc[-min(len(s_data), 22)]
                 elif lookback == "YTD":
-                    # 定位到今年第一个交易日
                     ytd_df = s_data[s_data.index.year == current_year]
                     price_old = ytd_df.iloc[0] if not ytd_df.empty else s_data.iloc[0]
                 
                 perf = ((price_now - price_old) / price_old) * 100
                 tree_rows.append({
-                    'Market': 'S&P 500 Heatmap', 'Sector': sector, 
+                    'Market': 'S&P 500 X-Ray', 'Sector': sector, 
                     'Sub-Sector': sub_sector, 'Perf (%)': perf, 'Weight': weight
                 })
             except: pass
@@ -202,7 +227,6 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
         fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], mode='lines', name='EMA20', line=dict(color='#FFD700', width=1.3)))
         fig.add_trace(go.Scatter(x=df.index, y=df['EMA60'], mode='lines', name='EMA60', line=dict(color='#FF4B4B', width=1.3)))
 
-    # Viewport Lock (180 periods)
     if len(df) > 10 and timeframe != "MAX":
         last_df = df.iloc[-min(len(df), 180):]
         y_min = last_df['Low'].min() if has_ohlc else last_df[close_col].min()
@@ -222,7 +246,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 # 4. Bloomberg Dashboard UI
 # ==========================================
 with st.sidebar:
-    st.title("Macro Terminal V2.6")
+    st.title("Macro Terminal V2.7")
     page = st.selectbox("📂 Category", ["📈 Equity Markets", "📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI"])
     
     asset_list = []
@@ -262,17 +286,14 @@ if db:
     target_df, color, use_ma = get_data(selected_asset)
     
     if page == "📈 Equity Markets":
-        tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector Performance (GICS)"])
+        tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector X-Ray (GICS)"])
         with tab1:
             st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_res, show_ma=use_ma), use_container_width=True)
         with tab2:
-            # --- 热力图专用 UI ---
             col_lk, col_empty = st.columns([1, 3])
             with col_lk:
-                # 动态回溯选择器
-                lookback = st.select_slider("Lookback Period", options=["1D", "5D", "1M", "YTD"], value="YTD")
+                lookback = st.select_slider("Lookback Window", options=["1D", "5D", "1M", "YTD"], value="YTD")
             
-            # 数据获取与动态表现计算
             raw_h_df, hierarchy = fetch_gics_heatmap_raw()
             df_tree = calculate_heatmap_performance(raw_h_df, hierarchy, lookback)
             
@@ -294,7 +315,7 @@ if db:
                 
                 fig_tree.update_traces(
                     customdata=df_tree[['Perf (%)']],
-                    texttemplate="<b>%{label}</b><br>%{customdata[0]:.2f}%",
+                    texttemplate="<span style='font-size:11px'><b>%{label}</b></span><br>%{customdata[0]:.2f}%",
                     hovertemplate=f"<b>%{{label}}</b><br>{lookback} Perf: %{{customdata[0]:.2f}}%<extra></extra>",
                     root_color="#000000"
                 )
