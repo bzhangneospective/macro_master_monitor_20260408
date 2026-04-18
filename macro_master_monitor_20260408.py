@@ -12,7 +12,7 @@ from fredapi import Fred
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V2.8", 
+    page_title="Macro Terminal V2.10", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -101,7 +101,7 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data, "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 # ==========================================
-# 2.1 Decoupled Heatmap Data Pipeline (V2.8 X-Ray)
+# 2.1 Decoupled Heatmap Data Pipeline (V2.10)
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_gics_heatmap_raw():
@@ -223,7 +223,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 # 4. Bloomberg Dashboard UI
 # ==========================================
 with st.sidebar:
-    st.title("Macro Terminal V2.8")
+    st.title("Macro Terminal V2.10")
     page = st.selectbox("📂 Category", ["📈 Equity Markets", "📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI"])
     
     asset_list = []
@@ -267,47 +267,56 @@ if db:
         with tab1:
             st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_res, show_ma=use_ma), use_container_width=True)
         with tab2:
-            # --- V2.8 UI 改造：紧凑布局 ---
-            c_empty, c_ctrl = st.columns([5, 2])
+            # --- V2.10 视觉革命：统一右侧控制台 ---
+            # 采用 13:1 极致分栏比例，把图表空间撑到最大
+            c_tree, c_ctrl = st.columns([13, 1])
+            
             with c_ctrl:
-                # 使用紧凑的横向 radio 替代 Slider，靠右对齐与 Colorbar 呼应
-                lookback = st.radio("Lookback Window", ["1D", "5D", "1M", "YTD"], horizontal=True, label_visibility="collapsed", index=3)
+                # 彻底去掉 150px 空白，仅仅留 5px 为了与左侧图表顶部边缘对齐
+                st.markdown("<div style='padding-top: 5px;'></div>", unsafe_allow_html=True)
+                st.markdown("<span style='font-size:12px; font-weight:bold; color:gray;'>Period</span>", unsafe_allow_html=True)
+                lookback = st.radio("Lookback Window", ["1D", "5D", "1M", "YTD"], index=3, label_visibility="collapsed")
             
-            raw_h_df, hierarchy = fetch_gics_heatmap_raw()
-            df_tree = calculate_heatmap_performance(raw_h_df, hierarchy, lookback)
-            
-            if not df_tree.empty:
-                fig_tree = px.treemap(
-                    df_tree,
-                    path=['Market', 'Sector', 'Sub-Sector'],
-                    values='Weight',
-                    color='Perf (%)',
-                    color_continuous_scale=[[0, '#FF4B4B'], [0.5, '#111111'], [1.0, '#00CC96']],
-                    color_continuous_midpoint=0
-                )
+            with c_tree:
+                raw_h_df, hierarchy = fetch_gics_heatmap_raw()
+                df_tree = calculate_heatmap_performance(raw_h_df, hierarchy, lookback)
                 
-                fig_tree.update_layout(
-                    height=490, 
-                    margin=dict(l=0, r=0, t=10, b=0), # 压榨顶部留白
-                    template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)',
-                    # 优化 Colorbar：变得瘦长，标题变为纯动态区间文本
-                    coloraxis_colorbar=dict(
-                        title=dict(text=f"{lookback} (%)", side="top"),
-                        thickness=12,
-                        len=0.75,
-                        yanchor="middle",
-                        y=0.5
+                if not df_tree.empty:
+                    fig_tree = px.treemap(
+                        df_tree,
+                        path=['Market', 'Sector', 'Sub-Sector'],
+                        values='Weight',
+                        color='Perf (%)',
+                        color_continuous_scale=[[0, '#FF4B4B'], [0.5, '#111111'], [1.0, '#00CC96']],
+                        color_continuous_midpoint=0
                     )
-                )
-                
-                fig_tree.update_traces(
-                    customdata=df_tree[['Perf (%)']],
-                    texttemplate="<span style='font-size:11px'><b>%{label}</b></span><br>%{customdata[0]:.2f}%",
-                    hovertemplate=f"<b>%{{label}}</b><br>{lookback} Perf: %{{customdata[0]:.2f}}%<extra></extra>",
-                    root_color="#000000"
-                )
-                st.plotly_chart(fig_tree, use_container_width=True, config={'displayModeBar': False})
-            else:
-                st.warning("Fetching GICS component data...")
+                    
+                    fig_tree.update_layout(
+                        height=490, 
+                        # 核心点 1：0 Margin，图表直接顶格渲染，不留一丝废余空间
+                        margin=dict(l=0, r=40, t=0, b=0), 
+                        template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)',
+                        
+                        # 核心点 2：将 Colorbar 锚定在右下角，与右上角的 Radio 按钮形成完美上下拼接
+                        coloraxis_colorbar=dict(
+                            title=dict(text=f"Perf", side="top"),
+                            thickness=12,
+                            len=0.55,          # 仅占下半区高度
+                            yanchor="bottom",  # 底部对齐
+                            y=0.02,            # 紧贴下边线
+                            xanchor="left",    # 左对齐到基准线
+                            x=1.01             # 微推到图表最右侧外沿，正好落在右侧控制台的正下方
+                        )
+                    )
+                    
+                    fig_tree.update_traces(
+                        customdata=df_tree[['Perf (%)']],
+                        texttemplate="<span style='font-size:11px'><b>%{label}</b></span><br>%{customdata[0]:.2f}%",
+                        hovertemplate=f"<b>%{{label}}</b><br>{lookback} Perf: %{{customdata[0]:.2f}}%<extra></extra>",
+                        root_color="#000000"
+                    )
+                    st.plotly_chart(fig_tree, use_container_width=True, config={'displayModeBar': False})
+                else:
+                    st.warning("Fetching GICS component data...")
     else:
         st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_res, show_ma=use_ma), use_container_width=True)
