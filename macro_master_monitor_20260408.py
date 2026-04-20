@@ -11,14 +11,17 @@ from fredapi import Fred
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.3", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.4", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-        /* 顶部安全边距，防止页眉遮挡 Tab */
-        .block-container { padding-top: 3rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
+        /* 1. 微调顶部安全边距，2.5rem 刚好露出选项卡，不浪费像素 */
+        .block-container { padding-top: 2.5rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
         
-        /* 隐藏右上角多余主菜单，保留侧边栏呼出按钮 */
+        /* 2. 暴力切除 Streamlit 绘图组件自带的 1rem (16px) 底部垃圾空白，彻底消灭滚动条 */
+        div[data-testid="stPlotlyChart"] { margin-bottom: -15px !important; }
+        
+        /* 仅隐藏右上角多余主菜单，保留侧边栏呼出按钮 */
         #MainMenu {visibility: hidden;} 
         footer {visibility: hidden;}
         
@@ -202,7 +205,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 
     title_str = f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum (PPO): {mom_val:.2f}%</span>" if show_ma else title
     fig.update_layout(
-        height=470, 
+        height=490, 
         margin=dict(l=10, r=10, t=60, b=10), 
         template="plotly_dark", 
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
@@ -210,7 +213,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
         yaxis=dict(side="right", showgrid=True, gridcolor='rgba(128,128,128,0.15)', fixedrange=False), 
         xaxis=dict(rangeslider=dict(visible=False), showgrid=False),
         hovermode="x unified",
-        dragmode='pan'  # <--- 恢复左键拖拽平移功能！
+        dragmode='pan'
     )
     return fig
 
@@ -219,7 +222,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.3")
+    st.title("Macro Terminal V3.4")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
@@ -317,7 +320,6 @@ if db:
     if page == "📈 Equity Markets":
         tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector X-Ray (Heatmap)"])
         with tab1:
-            # <--- 恢复滚轮缩放与顶部工具栏！
             st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
         with tab2:
             m_type = "HK" if "Hang" in selected_asset else ("CN" if "SSE" in selected_asset else "US")
@@ -325,8 +327,11 @@ if db:
             c_tree, c_perf, c_period = st.columns([15, 0.8, 1.2])
             
             with c_period:
-                st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
-                st.markdown("<p style='color:gray; font-size:12px; margin-bottom:5px;'>Period</p>", unsafe_allow_html=True)
+                # 核心修复：合并 markdown，杜绝产生带 margin 的多余 HTML 容器
+                st.markdown("""
+                    <div style='height:40px;'></div>
+                    <div style='color:gray; font-size:12px; margin-bottom:5px; font-weight:bold;'>Period</div>
+                """, unsafe_allow_html=True)
                 lookback = st.radio("L", ["1D", "5D", "1M", "YTD"], index=3, label_visibility="collapsed")
 
             raw_h, hier = fetch_market_heatmap_raw(m_type)
@@ -350,5 +355,4 @@ if db:
                     fig_p.update_layout(height=490, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
                     st.plotly_chart(fig_p, use_container_width=False, config={'displayModeBar': False})
     else:
-        # <--- 恢复滚轮缩放与顶部工具栏！
         st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
