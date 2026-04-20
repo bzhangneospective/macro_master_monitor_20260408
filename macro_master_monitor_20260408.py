@@ -11,13 +11,14 @@ from fredapi import Fred
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.1", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.2", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-        .block-container { padding-top: 1rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
+        /* 【核心修复】将顶部边距调整为 3rem，防止被白色页眉遮挡选项卡 */
+        .block-container { padding-top: 3rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
         
-        /* 修复侧边栏：仅隐藏多余主菜单，保留侧边栏呼出按钮 */
+        /* 隐藏右上角多余主菜单，但保留整个 Header 以确保侧边栏展开按钮可用 */
         #MainMenu {visibility: hidden;} 
         footer {visibility: hidden;}
         
@@ -199,7 +200,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
         y_max = last_df['High'].max() if has_ohlc else last_df[close_col].max()
         fig.update_layout(xaxis_range=[last_df.index[0], last_df.index[-1]], yaxis_range=[y_min*0.95, y_max*1.05])
 
-    # 修复：保护标题渲染不被折叠，增加 t=60 呼吸空间
+    # 保护标题渲染不被折叠
     title_str = f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum (PPO): {mom_val:.2f}%</span>" if show_ma else title
     fig.update_layout(
         height=490, 
@@ -218,12 +219,12 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.1")
+    st.title("Macro Terminal V3.2")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
-    # 彻底恢复完整的 V2.1 资产列表
+    # 全景资产列表
     asset_list = []
     if page == "📊 Spreads & Ratios": asset_list = ["High-Yield Spread (OAS)", "Emerging Market (EMBI)", "AAA Corporate Spread", "BAA Corporate Spread", "10Y-2Y Spread", "10Y-3M Spread", "SOFR-EFFR Premium", "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio"]
     elif page == "⚒️ Commodity": asset_list = ["Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", "Bitcoin (BTC-USD)", "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", "DCE Soybean Meal", "DCE Soybean Oil", "EIA Crude Inv. (Mock)", "EIA Gasoline Inv. (Mock)"]
@@ -251,7 +252,6 @@ if db:
         if df1 is not None and df2 is not None and not df1.empty and not df2.empty: return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna()
         return None
 
-    # 彻底恢复完整数据映射，包含利差与比例运算
     def get_data(asset_name):
         mapping = {
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False),
@@ -320,7 +320,6 @@ if db:
         with tab1:
             st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True)
         with tab2:
-            # 自动探测热力图市场
             m_type = "HK" if "Hang" in selected_asset else ("CN" if "SSE" in selected_asset else "US")
             
             c_tree, c_perf, c_period = st.columns([15, 0.8, 1.2])
