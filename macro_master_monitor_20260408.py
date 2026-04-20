@@ -11,7 +11,7 @@ from fredapi import Fred
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.6", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.7", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -89,6 +89,10 @@ def fetch_global_data():
         bond_df.set_index('日期', inplace=True)
         cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
     except: pass
+
+    dates = pd.date_range(start=datetime.date.today() - datetime.timedelta(days=365*10), end=datetime.date.today(), freq='B')
+    cn_data['EIA_Crude'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
+    cn_data['EIA_Gasoline'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
     
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data}
 
@@ -177,7 +181,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     if has_ohlc: fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], increasing_line_color='#00CC96', decreasing_line_color='#FF4B4B'))
     else: fig.add_trace(go.Scatter(x=df.index, y=df[close_col], mode='lines', line=dict(color=base_color, width=2.5)))
 
-    # --- 修复：获取最后价格并格式化标题 ---
+    # 获取最后价格并格式化
     last_price = df[close_col].iloc[-1]
     price_display = f"{last_price:,.2f} {unit}" if unit != "%" else f"{last_price:.4f}%"
 
@@ -198,10 +202,10 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         y_max = last_df['High'].max() if has_ohlc else last_df[close_col].max()
         fig.update_layout(xaxis_range=[last_df.index[0], last_df.index[-1]], yaxis_range=[y_min*0.95, y_max*1.05])
 
-    # 终极标题样式：名称 + 价格单位 + 动能
-    title_str = f"<b>{title}</b> <span style='font-size:22px; color:#FFFFFF;'>{price_display}</span>"
+    # 核心修复点：删除了强制白色的 color:#FFFFFF，让价格数字自适应亮色/暗色模式
+    title_str = f"<b>{title}</b> &nbsp;&nbsp; <span style='font-size:22px;'>{price_display}</span>"
     if show_ma:
-        title_str += f" <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>"
+        title_str += f" &nbsp;&nbsp; <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>"
 
     fig.update_layout(
         height=470, 
@@ -221,7 +225,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.6")
+    st.title("Macro Terminal V3.7")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
