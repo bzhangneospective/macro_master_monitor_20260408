@@ -16,7 +16,11 @@ st.set_page_config(page_title="Macro Terminal V3.0", layout="wide", initial_side
 st.markdown("""
     <style>
         .block-container { padding-top: 1rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
-        header {visibility: hidden;} footer {visibility: hidden;}
+        
+        /* [修复重点] 删除了 header {visibility: hidden;}，确保侧边栏呼出按钮随时可见 */
+        #MainMenu {visibility: hidden;} /* 仅隐藏右上角多余菜单 */
+        footer {visibility: hidden;}
+        
         .stTabs [data-baseweb="tab-list"] { gap: 24px; }
         .stTabs [data-baseweb="tab"] { height: 40px; font-size: 16px; font-weight: 600; }
         div[data-testid="stRadio"] label { white-space: nowrap; font-size: 12px !important; padding: 2px 0px; }
