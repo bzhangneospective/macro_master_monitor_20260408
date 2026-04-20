@@ -11,14 +11,14 @@ from fredapi import Fred
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.2", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.3", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-        /* 【核心修复】将顶部边距调整为 3rem，防止被白色页眉遮挡选项卡 */
+        /* 顶部安全边距，防止页眉遮挡 Tab */
         .block-container { padding-top: 3rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
         
-        /* 隐藏右上角多余主菜单，但保留整个 Header 以确保侧边栏展开按钮可用 */
+        /* 隐藏右上角多余主菜单，保留侧边栏呼出按钮 */
         #MainMenu {visibility: hidden;} 
         footer {visibility: hidden;}
         
@@ -200,7 +200,6 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
         y_max = last_df['High'].max() if has_ohlc else last_df[close_col].max()
         fig.update_layout(xaxis_range=[last_df.index[0], last_df.index[-1]], yaxis_range=[y_min*0.95, y_max*1.05])
 
-    # 保护标题渲染不被折叠
     title_str = f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum (PPO): {mom_val:.2f}%</span>" if show_ma else title
     fig.update_layout(
         height=490, 
@@ -210,7 +209,8 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
         title=dict(text=title_str, font=dict(size=24)), 
         yaxis=dict(side="right", showgrid=True, gridcolor='rgba(128,128,128,0.15)', fixedrange=False), 
         xaxis=dict(rangeslider=dict(visible=False), showgrid=False),
-        hovermode="x unified"
+        hovermode="x unified",
+        dragmode='pan'  # <--- 恢复左键拖拽平移功能！
     )
     return fig
 
@@ -219,12 +219,11 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.2")
+    st.title("Macro Terminal V3.3")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
-    # 全景资产列表
     asset_list = []
     if page == "📊 Spreads & Ratios": asset_list = ["High-Yield Spread (OAS)", "Emerging Market (EMBI)", "AAA Corporate Spread", "BAA Corporate Spread", "10Y-2Y Spread", "10Y-3M Spread", "SOFR-EFFR Premium", "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio"]
     elif page == "⚒️ Commodity": asset_list = ["Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", "Bitcoin (BTC-USD)", "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", "DCE Soybean Meal", "DCE Soybean Oil", "EIA Crude Inv. (Mock)", "EIA Gasoline Inv. (Mock)"]
@@ -318,7 +317,8 @@ if db:
     if page == "📈 Equity Markets":
         tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector X-Ray (Heatmap)"])
         with tab1:
-            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True)
+            # <--- 恢复滚轮缩放与顶部工具栏！
+            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
         with tab2:
             m_type = "HK" if "Hang" in selected_asset else ("CN" if "SSE" in selected_asset else "US")
             
@@ -350,4 +350,5 @@ if db:
                     fig_p.update_layout(height=490, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
                     st.plotly_chart(fig_p, use_container_width=False, config={'displayModeBar': False})
     else:
-        st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True)
+        # <--- 恢复滚轮缩放与顶部工具栏！
+        st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
