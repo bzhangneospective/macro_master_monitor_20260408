@@ -7,11 +7,14 @@ import yfinance as yf
 import datetime
 import akshare as ak
 from fredapi import Fred
+import warnings
+
+warnings.filterwarnings('ignore')
 
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.7", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.8", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -32,30 +35,36 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. Institutional Data Engine (Full Assets)
+# 2. Institutional Data Engine (No Mock Data)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
+    # 【新增】DX-Y.NYB (美元指数), ^VIX (恐慌指数)
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
-        'CNH=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT'
+        'CNH=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT',
+        'DX-Y.NYB', '^VIX'
     ]
     yf_data = {}
     try:
         yf_raw = yf.download(yf_tickers, period="max", progress=False)
         for t in yf_tickers:
             try:
-                df = pd.DataFrame({'Open': yf_raw['Open'][t], 'High': yf_raw['High'][t], 'Low': yf_raw['Low'][t], 'Close': yf_raw['Close'][t]}).dropna()
-                yf_data[t] = df
+                # 机构级容错：去除全空列，避免画图报错
+                df = pd.DataFrame({'Open': yf_raw['Open'][t], 'High': yf_raw['High'][t], 'Low': yf_raw['Low'][t], 'Close': yf_raw['Close'][t]}).dropna(how='all')
+                if not df.empty:
+                    yf_data[t] = df.ffill().dropna()
             except: pass
     except: pass
 
+    # 【新增】DFII10 (美国10年期通胀保值债券收益率 / 实际利率)
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
-        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS'
+        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS',
+        'DFII10'
     ]
     fred_data = {}
     try:
@@ -63,7 +72,8 @@ def fetch_global_data():
         for ticker in fred_tickers:
             try:
                 series = fred.get_series(ticker)
-                fred_data[ticker] = pd.DataFrame({'Close': series}).ffill().bfill()
+                # 机构级清洗：前向填充缺失值，避免画出断线
+                fred_data[ticker] = pd.DataFrame({'Close': series}).ffill().dropna()
             except: pass
     except: pass
 
@@ -77,23 +87,21 @@ def fetch_global_data():
     for name, symbol in ak_symbols.items():
         try:
             df = ak.futures_zh_daily_sina(symbol=symbol)
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
-            df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'})
-            cn_data[name] = df[['Open', 'High', 'Low', 'Close']].apply(pd.to_numeric, errors='coerce').dropna()
+            if not df.empty:
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+                df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'})
+                cn_data[name] = df[['Open', 'High', 'Low', 'Close']].apply(pd.to_numeric, errors='coerce').dropna(how='all').ffill().dropna()
         except: pass
             
     try:
         bond_df = ak.bond_zh_us_rate()
-        bond_df['日期'] = pd.to_datetime(bond_df['日期'])
-        bond_df.set_index('日期', inplace=True)
-        cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
+        if not bond_df.empty:
+            bond_df['日期'] = pd.to_datetime(bond_df['日期'])
+            bond_df.set_index('日期', inplace=True)
+            cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
     except: pass
 
-    dates = pd.date_range(start=datetime.date.today() - datetime.timedelta(days=365*10), end=datetime.date.today(), freq='B')
-    cn_data['EIA_Crude'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
-    cn_data['EIA_Gasoline'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
-    
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data}
 
 # ==========================================
@@ -161,7 +169,7 @@ def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
     return pd.DataFrame(rows)
 
 # ==========================================
-# 3. Charting Factory
+# 3. Charting Factory (Performance Optimized)
 # ==========================================
 def resample_data(df, timeframe):
     if df.empty or timeframe == "Daily": return df
@@ -174,12 +182,21 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     if df_raw is None or df_raw.empty: return go.Figure()
     
     df = resample_data(df_raw.copy(), timeframe)
+    
+    # 【核心优化】：日线级别强制截断数据量，避免向前端抛送数万节点导致卡顿崩溃
+    if timeframe == "Daily" and len(df) > 1500:
+        df = df.iloc[-1500:]
+
     has_ohlc = all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']) and timeframe != "MAX"
     close_col = 'Close' if 'Close' in df.columns else df.columns[0]
     
     fig = go.Figure()
-    if has_ohlc: fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], increasing_line_color='#00CC96', decreasing_line_color='#FF4B4B'))
-    else: fig.add_trace(go.Scatter(x=df.index, y=df[close_col], mode='lines', line=dict(color=base_color, width=2.5)))
+    
+    if has_ohlc: 
+        fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], increasing_line_color='#00CC96', decreasing_line_color='#FF4B4B'))
+    else: 
+        # 对于非 OHLC 折线图，强制开启 WebGL 渲染，突破 60FPS 丝滑度
+        fig.add_trace(go.Scattergl(x=df.index, y=df[close_col], mode='lines', line=dict(color=base_color, width=2.5)))
 
     # 获取最后价格并格式化
     last_price = df[close_col].iloc[-1]
@@ -192,17 +209,17 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         df['EMA120'] = df[close_col].ewm(span=120, adjust=False).mean()
         mom_val = (((df[close_col].ewm(span=9).mean() - df[close_col].ewm(span=26).mean()) / df[close_col].ewm(span=26).mean()) * 100).iloc[-1]
         mom_color = "#00CC96" if mom_val >= 0 else "#FF4B4B"
-        fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], mode='lines', name='EMA20', line=dict(color='#FFD700', width=1.3)))
-        fig.add_trace(go.Scatter(x=df.index, y=df['EMA60'], mode='lines', name='EMA60', line=dict(color='#FF4B4B', width=1.3)))
-        fig.add_trace(go.Scatter(x=df.index, y=df['EMA120'], mode='lines', name='EMA120', line=dict(color='#AB63FA', width=1.3, dash='dot')))
+        fig.add_trace(go.Scattergl(x=df.index, y=df['EMA20'], mode='lines', name='EMA20', line=dict(color='#FFD700', width=1.3)))
+        fig.add_trace(go.Scattergl(x=df.index, y=df['EMA60'], mode='lines', name='EMA60', line=dict(color='#FF4B4B', width=1.3)))
+        fig.add_trace(go.Scattergl(x=df.index, y=df['EMA120'], mode='lines', name='EMA120', line=dict(color='#AB63FA', width=1.3, dash='dot')))
 
+    # Fat Candles 视野自适应
     if len(df) > 10 and timeframe != "MAX":
         last_df = df.iloc[-min(len(df), 180):]
         y_min = last_df['Low'].min() if has_ohlc else last_df[close_col].min()
         y_max = last_df['High'].max() if has_ohlc else last_df[close_col].max()
         fig.update_layout(xaxis_range=[last_df.index[0], last_df.index[-1]], yaxis_range=[y_min*0.95, y_max*1.05])
 
-    # 核心修复点：删除了强制白色的 color:#FFFFFF，让价格数字自适应亮色/暗色模式
     title_str = f"<b>{title}</b> &nbsp;&nbsp; <span style='font-size:22px;'>{price_display}</span>"
     if show_ma:
         title_str += f" &nbsp;&nbsp; <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>"
@@ -216,7 +233,9 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         yaxis=dict(side="right", showgrid=True, gridcolor='rgba(128,128,128,0.15)', fixedrange=False), 
         xaxis=dict(rangeslider=dict(visible=False), showgrid=False),
         hovermode="x unified",
-        dragmode='pan'
+        dragmode='pan',
+        # 【核心优化】：锁定 UI 状态，防止 Streamlit 重渲染导致图表跳动
+        uirevision=title + timeframe 
     )
     return fig
 
@@ -225,7 +244,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.7")
+    st.title("Macro Terminal V3.8")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
@@ -233,8 +252,8 @@ with st.sidebar:
     asset_list = []
     if page == "📊 Spreads & Ratios": asset_list = ["High-Yield Spread (OAS)", "Emerging Market (EMBI)", "AAA Corporate Spread", "BAA Corporate Spread", "10Y-2Y Spread", "10Y-3M Spread", "SOFR-EFFR Premium", "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio"]
     elif page == "⚒️ Commodity": asset_list = ["Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", "Bitcoin (BTC-USD)", "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", "DCE Soybean Meal", "DCE Soybean Oil"]
-    elif page == "💱 FX & FI": asset_list = ["USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", "USD/CAD", "USD/INR", "USD/BRL", "US 2Y Yield", "US 10Y Yield", "US 30Y Yield", "China 10Y Yield", "US Long Treas (TLT)"]
-    elif page == "📈 Equity Markets": asset_list = ["S&P 500 (^GSPC)", "Nasdaq 100 (^NDX)", "Nikkei 225 (^N225)", "Hang Seng (^HSI)", "SSE Composite", "KOSPI (^KS11)", "Taiwan (^TWII)", "Semiconductor (^SOX)"]
+    elif page == "💱 FX & FI": asset_list = ["US Dollar Index (DXY)", "USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", "USD/CAD", "USD/INR", "USD/BRL", "US 2Y Yield", "US 10Y Yield", "US 30Y Yield", "US 10Y Real Yield", "China 10Y Yield", "US Long Treas (TLT)"]
+    elif page == "📈 Equity Markets": asset_list = ["S&P 500 (^GSPC)", "Nasdaq 100 (^NDX)", "Volatility Index (VIX)", "Nikkei 225 (^N225)", "Hang Seng (^HSI)", "SSE Composite", "KOSPI (^KS11)", "Taiwan (^TWII)", "Semiconductor (^SOX)"]
     
     selected_asset = st.radio("🎯 Select Asset", asset_list)
     st.markdown("---")
@@ -258,7 +277,6 @@ if db:
         return None
 
     def get_data(asset_name):
-        # (Data, Color, Use_MA, Unit)
         mapping = {
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False, "%"),
             "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C", False, "%"),
@@ -293,6 +311,7 @@ if db:
             "ZCE Sugar": (mk_df.get('ZCE_Sugar'), "#F8F8FF", True, "CNY"),
             "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32", True, "CNY"),
             "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True, "CNY"),
+            "US Dollar Index (DXY)": (yf_df.get('DX-Y.NYB'), "#1E90FF", True, ""),
             "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B", True, ""),
             "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True, ""),
             "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96", True, ""),
@@ -304,10 +323,12 @@ if db:
             "US 2Y Yield": (fr_df.get('DGS2'), "#696969", True, "%"),
             "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000", True, "%"),
             "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True, "%"),
+            "US 10Y Real Yield": (fr_df.get('DFII10'), "#00CC96", True, "%"),
             "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B", True, "%"),
             "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True, "USD"),
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True, "USD"),
             "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True, "USD"),
+            "Volatility Index (VIX)": (yf_df.get('^VIX'), "#FF4B4B", True, ""),
             "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B", True, "JPY"),
             "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF", True, "HKD"),
             "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00", True, "CNY"),
@@ -319,10 +340,18 @@ if db:
 
     target_df, color, use_ma, unit = get_data(selected_asset)
     
+    # 统一精简的渲染配置
+    plot_config = {
+        'scrollZoom': True, 
+        'displayModeBar': False,  # 隐藏右上角杂乱的工具栏
+        'showTips': False, 
+        'displaylogo': False
+    }
+    
     if page == "📈 Equity Markets":
         tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector X-Ray (Heatmap)"])
         with tab1:
-            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
+            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config=plot_config)
         with tab2:
             m_type = "HK" if "Hang" in selected_asset else ("CN" if "SSE" in selected_asset else "US")
             
@@ -356,4 +385,4 @@ if db:
                     fig_p.update_layout(height=470, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
                     st.plotly_chart(fig_p, use_container_width=False, config={'displayModeBar': False})
     else:
-        st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
+        st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config=plot_config)
