@@ -11,13 +11,13 @@ from fredapi import Fred
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.5", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.6", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
         .block-container { padding-top: 2.5rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
         
-        /* 暴力切除 Streamlit 绘图组件自带的 1rem (16px) 底部垃圾空白 */
+        /* 暴力切除 Streamlit 绘图组件自带的底部垃圾空白 */
         div[data-testid="stPlotlyChart"] { margin-bottom: -15px !important; }
         
         #MainMenu {visibility: hidden;} 
@@ -89,10 +89,6 @@ def fetch_global_data():
         bond_df.set_index('日期', inplace=True)
         cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
     except: pass
-
-    dates = pd.date_range(start=datetime.date.today() - datetime.timedelta(days=365*10), end=datetime.date.today(), freq='B')
-    cn_data['EIA_Crude'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
-    cn_data['EIA_Gasoline'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
     
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data}
 
@@ -170,7 +166,7 @@ def resample_data(df, timeframe):
         return df.resample(rule).agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).dropna()
     return df.resample(rule).last().dropna()
 
-def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
+def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, unit=""):
     if df_raw is None or df_raw.empty: return go.Figure()
     
     df = resample_data(df_raw.copy(), timeframe)
@@ -180,6 +176,10 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
     fig = go.Figure()
     if has_ohlc: fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], increasing_line_color='#00CC96', decreasing_line_color='#FF4B4B'))
     else: fig.add_trace(go.Scatter(x=df.index, y=df[close_col], mode='lines', line=dict(color=base_color, width=2.5)))
+
+    # --- 修复：获取最后价格并格式化标题 ---
+    last_price = df[close_col].iloc[-1]
+    price_display = f"{last_price:,.2f} {unit}" if unit != "%" else f"{last_price:.4f}%"
 
     mom_val = 0; mom_color = "#FFFFFF"
     if show_ma:
@@ -198,9 +198,13 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
         y_max = last_df['High'].max() if has_ohlc else last_df[close_col].max()
         fig.update_layout(xaxis_range=[last_df.index[0], last_df.index[-1]], yaxis_range=[y_min*0.95, y_max*1.05])
 
-    title_str = f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum (PPO): {mom_val:.2f}%</span>" if show_ma else title
+    # 终极标题样式：名称 + 价格单位 + 动能
+    title_str = f"<b>{title}</b> <span style='font-size:22px; color:#FFFFFF;'>{price_display}</span>"
+    if show_ma:
+        title_str += f" <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>"
+
     fig.update_layout(
-        height=470,  # <--- 统一降维至 470px
+        height=470, 
         margin=dict(l=10, r=10, t=60, b=10), 
         template="plotly_dark", 
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
@@ -217,14 +221,14 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.5")
+    st.title("Macro Terminal V3.6")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
     asset_list = []
     if page == "📊 Spreads & Ratios": asset_list = ["High-Yield Spread (OAS)", "Emerging Market (EMBI)", "AAA Corporate Spread", "BAA Corporate Spread", "10Y-2Y Spread", "10Y-3M Spread", "SOFR-EFFR Premium", "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio"]
-    elif page == "⚒️ Commodity": asset_list = ["Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", "Bitcoin (BTC-USD)", "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", "DCE Soybean Meal", "DCE Soybean Oil", "EIA Crude Inv. (Mock)", "EIA Gasoline Inv. (Mock)"]
+    elif page == "⚒️ Commodity": asset_list = ["Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", "Bitcoin (BTC-USD)", "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", "DCE Soybean Meal", "DCE Soybean Oil"]
     elif page == "💱 FX & FI": asset_list = ["USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", "USD/CAD", "USD/INR", "USD/BRL", "US 2Y Yield", "US 10Y Yield", "US 30Y Yield", "China 10Y Yield", "US Long Treas (TLT)"]
     elif page == "📈 Equity Markets": asset_list = ["S&P 500 (^GSPC)", "Nasdaq 100 (^NDX)", "Nikkei 225 (^N225)", "Hang Seng (^HSI)", "SSE Composite", "KOSPI (^KS11)", "Taiwan (^TWII)", "Semiconductor (^SOX)"]
     
@@ -250,72 +254,71 @@ if db:
         return None
 
     def get_data(asset_name):
+        # (Data, Color, Use_MA, Unit)
         mapping = {
-            "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False),
-            "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C", False),
-            "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500", False),
-            "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700", False),
-            "10Y-2Y Spread": (safe_sub(fr_df.get('DGS10'), fr_df.get('DGS2')), "#FF4B4B", False),
-            "10Y-3M Spread": (safe_sub(fr_df.get('DGS10'), fr_df.get('DGS3MO')), "#DC143C", False),
-            "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False),
-            "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False),
-            "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False),
-            "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False),
-            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True),
-            "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True),
-            "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True),
-            "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513", True),
-            "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D", True),
-            "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4", True),
-            "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700", True),
-            "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32", True),
-            "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True),
-            "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True),
-            "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True),
-            "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0", True),
-            "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9", True),
-            "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899", True),
-            "SHFE Nickel": (mk_df.get('SHFE_Nickel'), "#708090", True),
-            "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969", True),
-            "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513", True),
-            "DCE Coke": (mk_df.get('DCE_Coke'), "#2F4F4F", True),
-            "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B", True),
-            "ZCE Methanol": (mk_df.get('ZCE_Methanol'), "#4B0082", True),
-            "ZCE Sugar": (mk_df.get('ZCE_Sugar'), "#F8F8FF", True),
-            "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32", True),
-            "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True),
-            "EIA Crude Inv. (Mock)": (mk_df.get('EIA_Crude'), "#8B4513", True),
-            "EIA Gasoline Inv. (Mock)": (mk_df.get('EIA_Gasoline'), "#4682B4", True),
-            "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B", True),
-            "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True),
-            "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96", True),
-            "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF", True),
-            "GBP/USD": (yf_df.get('GBPUSD=X'), "#8A2BE2", True),
-            "USD/CAD": (yf_df.get('CAD=X'), "#DC143C", True),
-            "USD/INR": (yf_df.get('INR=X'), "#00BFFF", True),
-            "USD/BRL": (yf_df.get('BRL=X'), "#32CD32", True),
-            "US 2Y Yield": (fr_df.get('DGS2'), "#696969", True),
-            "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000", True),
-            "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True),
-            "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B", True),
-            "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True),
-            "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True),
-            "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True),
-            "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B", True),
-            "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF", True),
-            "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00", True),
-            "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500", True),
-            "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32", True),
-            "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA", True)
+            "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False, "%"),
+            "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C", False, "%"),
+            "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500", False, "%"),
+            "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700", False, "%"),
+            "10Y-2Y Spread": (safe_sub(fr_df.get('DGS10'), fr_df.get('DGS2')), "#FF4B4B", False, "%"),
+            "10Y-3M Spread": (safe_sub(fr_df.get('DGS10'), fr_df.get('DGS3MO')), "#DC143C", False, "%"),
+            "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False, "%"),
+            "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, ""),
+            "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, ""),
+            "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, ""),
+            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True, "USD"),
+            "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True, "USD"),
+            "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True, "USD"),
+            "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513", True, "USD"),
+            "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D", True, "USD"),
+            "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4", True, "USD"),
+            "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700", True, "USD"),
+            "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32", True, "USD"),
+            "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True, "USD"),
+            "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True, "USD"),
+            "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True, "USD"),
+            "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0", True, "CNY"),
+            "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9", True, "CNY"),
+            "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899", True, "CNY"),
+            "SHFE Nickel": (mk_df.get('SHFE_Nickel'), "#708090", True, "CNY"),
+            "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969", True, "CNY"),
+            "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513", True, "CNY"),
+            "DCE Coke": (mk_df.get('DCE_Coke'), "#2F4F4F", True, "CNY"),
+            "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B", True, "CNY"),
+            "ZCE Methanol": (mk_df.get('ZCE_Methanol'), "#4B0082", True, "CNY"),
+            "ZCE Sugar": (mk_df.get('ZCE_Sugar'), "#F8F8FF", True, "CNY"),
+            "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32", True, "CNY"),
+            "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True, "CNY"),
+            "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B", True, ""),
+            "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True, ""),
+            "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96", True, ""),
+            "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF", True, ""),
+            "GBP/USD": (yf_df.get('GBPUSD=X'), "#8A2BE2", True, ""),
+            "USD/CAD": (yf_df.get('CAD=X'), "#DC143C", True, ""),
+            "USD/INR": (yf_df.get('INR=X'), "#00BFFF", True, ""),
+            "USD/BRL": (yf_df.get('BRL=X'), "#32CD32", True, ""),
+            "US 2Y Yield": (fr_df.get('DGS2'), "#696969", True, "%"),
+            "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000", True, "%"),
+            "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True, "%"),
+            "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B", True, "%"),
+            "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True, "USD"),
+            "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True, "USD"),
+            "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True, "USD"),
+            "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B", True, "JPY"),
+            "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF", True, "HKD"),
+            "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00", True, "CNY"),
+            "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500", True, "KRW"),
+            "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32", True, "TWD"),
+            "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA", True, "USD")
         }
-        return mapping.get(asset_name, (None, "#FFFFFF", False))
+        return mapping.get(asset_name, (None, "#FFFFFF", False, ""))
 
-    target_df, color, use_ma = get_data(selected_asset)
+    target_df, color, use_ma, unit = get_data(selected_asset)
     
     if page == "📈 Equity Markets":
         tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector X-Ray (Heatmap)"])
         with tab1:
-            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
+            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
         with tab2:
             m_type = "HK" if "Hang" in selected_asset else ("CN" if "SSE" in selected_asset else "US")
             
@@ -335,7 +338,7 @@ if db:
                 if not df_t.empty:
                     fig_t = px.treemap(df_t, path=[px.Constant(f"{m_type} Market"), 'Sector', 'Sub'], values='Weight', color='Perf',
                                        color_continuous_scale=[[0, '#FF4B4B'], [0.5, '#111111'], [1.0, '#00CC96']], color_continuous_midpoint=0)
-                    fig_t.update_layout(height=470, margin=dict(l=0, r=0, t=0, b=0), template="plotly_dark", coloraxis_showscale=False)  # <--- 统一降维至 470px
+                    fig_t.update_layout(height=470, margin=dict(l=0, r=0, t=0, b=0), template="plotly_dark", coloraxis_showscale=False)
                     fig_t.update_traces(customdata=df_t[['Perf']], texttemplate="<b>%{label}</b><br>%{customdata[0]:.2f}%", root_color="#000")
                     st.plotly_chart(fig_t, use_container_width=True, config={'displayModeBar': False})
             
@@ -346,7 +349,7 @@ if db:
                                     cmin=df_t['Perf'].min(), cmax=df_t['Perf'].max(), showscale=True,
                                     colorbar=dict(title=dict(text=f"{lookback}%", font=dict(size=12)),
                                                   thickness=15, len=1.0, x=0, y=0.5, yanchor="middle"))))
-                    fig_p.update_layout(height=470, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))  # <--- 统一降维至 470px
+                    fig_p.update_layout(height=470, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
                     st.plotly_chart(fig_p, use_container_width=False, config={'displayModeBar': False})
     else:
-        st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
+        st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
