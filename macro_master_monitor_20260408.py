@@ -9,13 +9,9 @@ import akshare as ak
 from fredapi import Fred
 
 # ==========================================
-# 1. 架构核心：页面配置与 Bloomberg 样式表
+# 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(
-    page_title="Macro Master Monitor V3.0", 
-    layout="wide", 
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Macro Terminal V3.0", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -24,261 +20,318 @@ st.markdown("""
         .stTabs [data-baseweb="tab-list"] { gap: 24px; }
         .stTabs [data-baseweb="tab"] { height: 40px; font-size: 16px; font-weight: 600; }
         div[data-testid="stRadio"] label { white-space: nowrap; font-size: 12px !important; padding: 2px 0px; }
-        /* 隐藏纵向 Colorbar 的容器边距 */
         [data-testid="column"]:nth-child(2) { padding-left: 0px !important; padding-right: 0px !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据管道：全量资产抓取 (主图表)
+# 2. Institutional Data Engine (Full Assets)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # --- 资产列表定义 ---
+    # 1. 恢复全量 YF 资产
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
-        'CNH=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 'CAD=X', 'MXN=X', 'BRL=X', 'TLT'
+        'CNH=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT'
     ]
-    fred_tickers = [
-        'SOFR', 'EFFR', 'DGS3MO', 'DGS2', 'DGS10', 'DGS30',
-        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS'
-    ]
-    
-    data_store = {"yf": {}, "fred": {}, "cn": {}}
-    
-    # 抓取 Yahoo Finance
+    yf_data = {}
     try:
         yf_raw = yf.download(yf_tickers, period="max", progress=False)
         for t in yf_tickers:
-            df = pd.DataFrame({
-                'Open': yf_raw['Open'][t], 'High': yf_raw['High'][t],
-                'Low': yf_raw['Low'][t], 'Close': yf_raw['Close'][t]
-            }).dropna()
-            data_store["yf"][t] = df
+            try:
+                df = pd.DataFrame({'Open': yf_raw['Open'][t], 'High': yf_raw['High'][t], 'Low': yf_raw['Low'][t], 'Close': yf_raw['Close'][t]}).dropna()
+                yf_data[t] = df
+            except: pass
     except: pass
 
-    # 抓取 FRED
+    # 2. 恢复全量 FRED 资产
+    fred_tickers = [
+        'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
+        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS'
+    ]
+    fred_data = {}
     try:
         fred = Fred(api_key=FRED_API_KEY)
-        for t in fred_tickers:
-            series = fred.get_series(t)
-            data_store["fred"][t] = pd.DataFrame({'Close': series}).ffill().bfill()
+        for ticker in fred_tickers:
+            try:
+                series = fred.get_series(ticker)
+                fred_data[ticker] = pd.DataFrame({'Close': series}).ffill().bfill()
+            except: pass
     except: pass
 
-    # 抓取 AKShare (中国债市与内盘期货)
+    # 3. 恢复全量 AKShare 商品及 Mock 数据
+    ak_symbols = {
+        'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
+        'SHFE_Zinc': 'zn0', 'SHFE_Nickel': 'ni0', 'SHFE_Rebar': 'rb0',
+        'DCE_IronOre': 'i0', 'DCE_Coke': 'j0', 'DCE_SoybeanMeal': 'm0', 'DCE_SoybeanOil': 'y0',
+        'ZCE_Sugar': 'SR0', 'ZCE_Cotton': 'CF0', 'ZCE_PTA': 'TA0', 'ZCE_Methanol': 'MA0'
+    }
+    cn_data = {}
+    for name, symbol in ak_symbols.items():
+        try:
+            df = ak.futures_zh_daily_sina(symbol=symbol)
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'})
+            cn_data[name] = df[['Open', 'High', 'Low', 'Close']].apply(pd.to_numeric, errors='coerce').dropna()
+        except: pass
+            
     try:
         bond_df = ak.bond_zh_us_rate()
         bond_df['日期'] = pd.to_datetime(bond_df['日期'])
         bond_df.set_index('日期', inplace=True)
-        data_store["cn"]['China_10Y'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
-        
-        # 内盘商品示例 (焦炭)
-        j_df = ak.futures_zh_daily_sina(symbol="j0")
-        j_df['date'] = pd.to_datetime(j_df['date']); j_df.set_index('date', inplace=True)
-        data_store["cn"]['DCE_Coke'] = j_df.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close'}).apply(pd.to_numeric).dropna()
+        cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
     except: pass
+
+    dates = pd.date_range(start=datetime.date.today() - datetime.timedelta(days=365*10), end=datetime.date.today(), freq='B')
+    cn_data['EIA_Crude'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
+    cn_data['EIA_Gasoline'] = pd.DataFrame({'Close': 100 + np.cumsum(np.random.randn(len(dates)) * 0.5)}, index=dates)
     
-    return data_store
+    return {"yf": yf_data, "fred": fred_data, "mock": cn_data}
 
 # ==========================================
-# 2.1 专项管线：多市场热力图配置
+# 2.1 Multi-Market Heatmap Pipeline
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_heatmap_data(market_type):
-    # 配置各市场的行业代理
-    configs = {
-        "US": [
-            ('Tech', 'Software', 'IGV', 12), ('Tech', 'Semis', 'SOXX', 11), ('Tech', 'Hardware', 'IYW', 6),
-            ('Fin', 'Banks', 'KBE', 5), ('Fin', 'Insurance', 'KIE', 4), ('Fin', 'Reg.Banks', 'KRE', 3),
-            ('Health', 'Biotech', 'IBB', 6), ('Health', 'Pharma', 'PPH', 6),
-            ('Disc', 'Retail', 'XRT', 8), ('Disc', 'Broad', 'XLY', 5),
-            ('Comm', 'Internet', 'FDN', 9), ('Industrials', 'Aero', 'ITA', 8),
-            ('Energy', 'E&P', 'XOP', 5), ('Utilities', 'Utils', 'XLU', 5), ('Materials', 'Mining', 'XME', 4)
-        ],
-        "HK": [
-            ('Tech', 'IT', 'HSITI.HK', 10), ('Fin', 'Finance', 'HSHFI.HK', 10), ('Property', 'RE', 'HSCPI.HK', 10),
-            ('Cons', 'Consumer', 'HSCNI.HK', 10), ('Health', 'Healthcare', 'HSHCI.HK', 10), ('Energy', 'Energy', 'HSEII.HK', 10),
-            ('Telecom', 'Telecom', 'HSTLI.HK', 10), ('Utils', 'Utilities', 'HSUTI.HK', 10)
+def fetch_market_heatmap_raw(market_type):
+    if market_type == "US":
+        hierarchy = [
+            ('Technology', 'Software (IGV)', 'IGV', 12.0), ('Technology', 'Semis (SOXX)', 'SOXX', 11.0), ('Technology', 'Hardware (IYW)', 'IYW', 6.0),
+            ('Financials', 'Banks (KBE)', 'KBE', 4.0), ('Financials', 'Reg.Banks (KRE)', 'KRE', 2.0), ('Financials', 'Insurance (KIE)', 'KIE', 7.0),
+            ('Health Care', 'Biotech (IBB)', 'IBB', 4.0), ('Health Care', 'Devices (IHI)', 'IHI', 4.0), ('Health Care', 'Pharma (PPH)', 'PPH', 5.0),
+            ('Cons Disc', 'Retail (XRT)', 'XRT', 6.0), ('Cons Disc', 'Home (ITB)', 'ITB', 2.0), ('Cons Disc', 'Broad (XLY)', 'XLY', 3.0),
+            ('Comm Svcs', 'Internet (FDN)', 'FDN', 6.0), ('Comm Svcs', 'Telecom (IYZ)', 'IYZ', 3.0),
+            ('Industrials', 'Aero (ITA)', 'ITA', 3.0), ('Industrials', 'Transport (IYT)', 'IYT', 3.0), ('Industrials', 'Broad (XLI)', 'XLI', 3.0),
+            ('Cons Staples', 'Food (PBJ)', 'PBJ', 3.0), ('Cons Staples', 'Broad (XLP)', 'XLP', 3.0),
+            ('Energy', 'E&P (XOP)', 'XOP', 2.0), ('Energy', 'Services (OIH)', 'OIH', 2.0),
+            ('Materials', 'Mining (XME)', 'XME', 1.0), ('Materials', 'Broad (XLB)', 'XLB', 1.5),
+            ('Real Estate', 'REITs (VNQ)', 'VNQ', 2.5), ('Utilities', 'Utilities (XLU)', 'XLU', 2.5)
         ]
-    }
+        tickers = [item[2] for item in hierarchy]
+        try: return yf.download(tickers, period="1y", progress=False)['Close'], hierarchy
+        except: return pd.DataFrame(), hierarchy
     
-    if market_type in configs:
-        hierarchy = configs[market_type]
-        tickers = [h[2] for h in hierarchy]
-        raw_df = yf.download(tickers, period="1y", progress=False)['Close']
-        return raw_df, hierarchy
-    
+    elif market_type == "HK":
+        hk_map = {
+            'HSITI.HK': ('Technology', 'IT'), 'HSHFI.HK': ('Financials', 'Finance'), 'HSCPI.HK': ('Property', 'Real Estate'),
+            'HSCNI.HK': ('Cons Disc', 'Consumer'), 'HSHCI.HK': ('Health Care', 'Healthcare'), 'HSEII.HK': ('Energy', 'Energy'),
+            'HSMBI.HK': ('Materials', 'Materials'), 'HSUTI.HK': ('Utilities', 'Utilities'), 'HSTLI.HK': ('Telecomm', 'Telecom')
+        }
+        tickers = list(hk_map.keys())
+        hierarchy = [(hk_map[t][0], hk_map[t][1], t, 10.0) for t in tickers]
+        try: return yf.download(tickers, period="1y", progress=False)['Close'], hierarchy
+        except: return pd.DataFrame(), hierarchy
+
     elif market_type == "CN":
-        # A股通过东方财富/同花顺接口抓取行业
         try:
-            df_cn = ak.stock_board_industry_summary_ths().head(15)
-            # 伪造层级以符合 Treemap
-            hierarchy = [('China', row['板块'], row['板块'], 10) for _, row in df_cn.iterrows()]
+            df_cn = ak.stock_board_industry_summary_ths().head(16)
+            hierarchy = [('A-Share', row['板块'], row['板块'], 10.0) for _, row in df_cn.iterrows()]
             return df_cn, hierarchy
         except: return pd.DataFrame(), []
 
-# ==========================================
-# 3. 核心算法：数据降采样与绘图引擎
-# ==========================================
-def draw_bloomberg_chart(df, title, color, res):
-    if df is None or df.empty: return go.Figure()
+def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
+    if raw_data.empty: return pd.DataFrame()
+    rows = []; cur_yr = datetime.date.today().year
     
-    # 1. 降采样逻辑 (Pandas 2.2+)
-    if res == "Weekly": df = df.resample('W').agg({'Open':'first','High':'max','Low':'min','Close':'last'}).dropna()
-    elif res == "Monthly": df = df.resample('ME').agg({'Open':'first','High':'max','Low':'min','Close':'last'}).dropna()
-    
-    # 2. 指标计算
-    df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
-    df['EMA60'] = df['Close'].ewm(span=60, adjust=False).mean()
-    df['EMA120'] = df['Close'].ewm(span=120, adjust=False).mean()
-    
-    # 3. 动能 (PPO) 公式
-    ema9 = df['Close'].ewm(span=9, adjust=False).mean()
-    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
-    ppo = ((ema9 - ema26) / ema26 * 100).iloc[-1]
-    ppo_color = "#00CC96" if ppo >= 0 else "#FF4B4B"
+    if market_type in ["US", "HK"]:
+        for sec, sub, t, w in hierarchy:
+            if t in raw_data.columns:
+                s = raw_data[t].dropna()
+                if len(s) < 2: continue
+                p_now = s.iloc[-1]
+                if lookback == "1D": p_old = s.iloc[-2]
+                elif lookback == "5D": p_old = s.iloc[-min(len(s), 6)]
+                elif lookback == "1M": p_old = s.iloc[-min(len(s), 22)]
+                else:
+                    ytd = s[s.index.year == cur_yr]
+                    p_old = ytd.iloc[0] if not ytd.empty else s.iloc[0]
+                rows.append({'Sector': sec, 'Sub': sub, 'Perf': ((p_now - p_old) / p_old) * 100, 'Weight': w})
+    else: 
+        for _, row in raw_data.iterrows():
+            rows.append({'Sector': 'China', 'Sub': row['板块'], 'Perf': float(row['涨跌幅']), 'Weight': 10.0})
+    return pd.DataFrame(rows)
 
-    # 4. 绘图
+# ==========================================
+# 3. Charting Factory
+# ==========================================
+def resample_data(df, timeframe):
+    if df.empty or timeframe == "Daily": return df
+    rule = 'W' if timeframe == "Weekly" else 'ME'
+    if all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']):
+        return df.resample(rule).agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).dropna()
+    return df.resample(rule).last().dropna()
+
+def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
+    if df_raw is None or df_raw.empty: return go.Figure()
+    
+    df = resample_data(df_raw.copy(), timeframe)
+    has_ohlc = all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']) and timeframe != "MAX"
+    close_col = 'Close' if 'Close' in df.columns else df.columns[0]
+    
     fig = go.Figure()
-    has_ohlc = all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']) and res != "MAX"
-    
-    if has_ohlc:
-        fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], increasing_line_color='#00CC96', decreasing_line_color='#FF4B4B'))
-    else:
-        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], line=dict(color=color, width=2.5)))
-    
-    # 叠加 EMA
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], line=dict(color='#FFD700', width=1.1), name='EMA20'))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA60'], line=dict(color='#FF4B4B', width=1.1), name='EMA60'))
+    if has_ohlc: fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], increasing_line_color='#00CC96', decreasing_line_color='#FF4B4B'))
+    else: fig.add_trace(go.Scatter(x=df.index, y=df[close_col], mode='lines', line=dict(color=base_color, width=2.5)))
 
-    # 5. 视野锁定 (180 周期)
-    if res != "MAX" and len(df) > 10:
-        ldf = df.iloc[-min(len(df), 180):]
-        y_min, y_max = ldf['Low'].min() if has_ohlc else ldf['Close'].min(), ldf['High'].max() if has_ohlc else ldf['Close'].max()
-        fig.update_layout(xaxis_range=[ldf.index[0], ldf.index[-1]], yaxis_range=[y_min*0.97, y_max*1.03])
+    mom_val = 0; mom_color = "#FFFFFF"
+    if show_ma:
+        df['EMA20'] = df[close_col].ewm(span=20, adjust=False).mean()
+        df['EMA60'] = df[close_col].ewm(span=60, adjust=False).mean()
+        df['EMA120'] = df[close_col].ewm(span=120, adjust=False).mean()
+        mom_val = (((df[close_col].ewm(span=9).mean() - df[close_col].ewm(span=26).mean()) / df[close_col].ewm(span=26).mean()) * 100).iloc[-1]
+        mom_color = "#00CC96" if mom_val >= 0 else "#FF4B4B"
+        fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], mode='lines', name='EMA20', line=dict(color='#FFD700', width=1.3)))
+        fig.add_trace(go.Scatter(x=df.index, y=df['EMA60'], mode='lines', name='EMA60', line=dict(color='#FF4B4B', width=1.3)))
+        fig.add_trace(go.Scatter(x=df.index, y=df['EMA120'], mode='lines', name='EMA120', line=dict(color='#AB63FA', width=1.3, dash='dot')))
 
-    fig.update_layout(
-        height=490, template="plotly_dark", margin=dict(l=10, r=10, t=50, b=10),
-        title=f"<b>{title}</b> <span style='color:{ppo_color}; font-size:14px;'>PPO: {ppo:.2f}%</span>",
-        yaxis=dict(side="right", showgrid=True, gridcolor='rgba(128,128,128,0.1)'),
-        xaxis=dict(rangeslider_visible=False, showgrid=False),
-        hovermode="x unified"
-    )
+    if len(df) > 10 and timeframe != "MAX":
+        last_df = df.iloc[-min(len(df), 180):]
+        y_min = last_df['Low'].min() if has_ohlc else last_df[close_col].min()
+        y_max = last_df['High'].max() if has_ohlc else last_df[close_col].max()
+        fig.update_layout(xaxis_range=[last_df.index[0], last_df.index[-1]], yaxis_range=[y_min*0.95, y_max*1.05])
+
+    title_str = f"{title} <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>" if show_ma else title
+    fig.update_layout(height=490, margin=dict(l=10, r=10, t=50, b=10), template="plotly_dark", title=title_str, yaxis=dict(side="right"), xaxis=dict(rangeslider=dict(visible=False)))
     return fig
 
 # ==========================================
-# 4. 终端 UI：Sidebar 资产导航
+# 4. Bloomberg Dashboard UI (Full Restoration)
 # ==========================================
 with st.sidebar:
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
     st.title("Macro Terminal V3.0")
     st.markdown("---")
     
-    m_sel = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
+    page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
-    # 资产映射 (归口管理)
-    asset_dict = {
-        "📊 Spreads & Ratios": ["OAS Spread", "10Y-2Y Spread", "10Y-3M Spread", "Gold-Silver Ratio", "Gold-WTI Ratio"],
-        "⚒️ Commodity": ["Gold (GC=F)", "Silver (SI=F)", "WTI Crude (CL=F)", "Natural Gas (NG=F)", "Bitcoin (BTC-USD)", "DCE Coke (CN)"],
-        "💱 FX & FI": ["USD/CNH", "USD/JPY", "EUR/USD", "US 2Y Yield", "US 10Y Yield", "China 10Y Yield", "US Long Treas (TLT)"],
-        "📈 Equity Markets": ["S&P 500 (^GSPC)", "Nasdaq 100 (^NDX)", "Semiconductor (^SOX)", "Nikkei 225 (^N225)", "Hang Seng Index", "SSE Composite"]
-    }
+    # 彻底恢复完整的 V2.1 资产列表
+    asset_list = []
+    if page == "📊 Spreads & Ratios": asset_list = ["High-Yield Spread (OAS)", "Emerging Market (EMBI)", "AAA Corporate Spread", "BAA Corporate Spread", "10Y-2Y Spread", "10Y-3M Spread", "SOFR-EFFR Premium", "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio"]
+    elif page == "⚒️ Commodity": asset_list = ["Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", "Bitcoin (BTC-USD)", "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", "DCE Soybean Meal", "DCE Soybean Oil", "EIA Crude Inv. (Mock)", "EIA Gasoline Inv. (Mock)"]
+    elif page == "💱 FX & FI": asset_list = ["USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", "USD/CAD", "USD/INR", "USD/BRL", "US 2Y Yield", "US 10Y Yield", "US 30Y Yield", "China 10Y Yield", "US Long Treas (TLT)"]
+    elif page == "📈 Equity Markets": asset_list = ["S&P 500 (^GSPC)", "Nasdaq 100 (^NDX)", "Nikkei 225 (^N225)", "Hang Seng (^HSI)", "SSE Composite", "KOSPI (^KS11)", "Taiwan (^TWII)", "Semiconductor (^SOX)"]
     
-    selected_asset = st.radio("🎯 Select Asset", asset_dict[m_sel])
-    selected_res = st.radio("Resolution", ["Daily", "Weekly", "Monthly", "MAX"], horizontal=True)
-    
-    if st.button("🔄 Force Data Sync", type="primary", use_container_width=True):
-        fetch_global_data.clear(); st.rerun()
+    selected_asset = st.radio("🎯 Select Asset", asset_list)
+    st.markdown("---")
+    selected_timeframe = st.radio("Resolution", ["Daily", "Weekly", "Monthly", "MAX"], horizontal=True, label_visibility="collapsed")
+    if st.button("🔄 Force Sync Data", type="primary", use_container_width=True):
+        fetch_global_data.clear(); fetch_market_heatmap_raw.clear(); st.rerun()
+
+    db = fetch_global_data()
 
 # ==========================================
-# 5. 主画布：渲染引擎
+# 5. Main Execution
 # ==========================================
-db = fetch_global_data()
-
 if db:
-    # --- 资产逻辑映射 ---
-    def get_asset_target(name):
-        yf, fr, cn = db['yf'], db['fred'], db['cn']
-        # 特殊计算逻辑
-        if name == "10Y-2Y Spread": return pd.DataFrame({'Close': fr['DGS10']['Close'] - fr['DGS2']['Close']}).dropna(), "#FF4B4B"
-        if name == "Gold-Silver Ratio": return pd.DataFrame({'Close': yf['GC=F']['Close'] / yf['SI=F']['Close']}).dropna(), "#AB63FA"
-        # 直接映射
-        m = {
-            "OAS Spread": (fr.get('BAMLH0A0HYM2'), "#FF4B4B"),
-            "Gold (GC=F)": (yf.get('GC=F'), "#FFD700"),
-            "WTI Crude (CL=F)": (yf.get('CL=F'), "#8B4513"),
-            "USD/CNH": (yf.get('CNH=X'), "#FF4B4B"),
-            "US 10Y Yield": (fr.get('DGS10'), "#8B0000"),
-            "China 10Y Yield": (cn.get('China_10Y'), "#FF4B4B"),
-            "S&P 500 (^GSPC)": (yf.get('^GSPC'), "#00CC96"),
-            "Nasdaq 100 (^NDX)": (yf.get('^NDX'), "#1E90FF"),
-            "Semiconductor (^SOX)": (yf.get('^SOX'), "#AB63FA"),
-            "Hang Seng Index": (yf.get('^HSI'), "#00BFFF"),
-            "SSE Composite": (yf.get('000001.SS'), "#FF8C00")
+    yf_df, fr_df, mk_df = db['yf'], db['fred'], db['mock']
+    
+    def safe_sub(df1, df2):
+        if df1 is not None and df2 is not None and not df1.empty and not df2.empty: return pd.DataFrame({'Close': df1['Close'] - df2['Close']}).dropna()
+        return None
+    def safe_div(df1, df2):
+        if df1 is not None and df2 is not None and not df1.empty and not df2.empty: return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna()
+        return None
+
+    # 彻底恢复 V2.1 的完整数据映射，并带入 MA 显示控制
+    def get_data(asset_name):
+        mapping = {
+            "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False),
+            "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C", False),
+            "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500", False),
+            "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700", False),
+            "10Y-2Y Spread": (safe_sub(fr_df.get('DGS10'), fr_df.get('DGS2')), "#FF4B4B", False),
+            "10Y-3M Spread": (safe_sub(fr_df.get('DGS10'), fr_df.get('DGS3MO')), "#DC143C", False),
+            "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False),
+            "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False),
+            "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False),
+            "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False),
+            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True),
+            "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True),
+            "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True),
+            "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513", True),
+            "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D", True),
+            "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4", True),
+            "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700", True),
+            "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32", True),
+            "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True),
+            "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True),
+            "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True),
+            "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0", True),
+            "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9", True),
+            "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899", True),
+            "SHFE Nickel": (mk_df.get('SHFE_Nickel'), "#708090", True),
+            "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969", True),
+            "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513", True),
+            "DCE Coke": (mk_df.get('DCE_Coke'), "#2F4F4F", True),
+            "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B", True),
+            "ZCE Methanol": (mk_df.get('ZCE_Methanol'), "#4B0082", True),
+            "ZCE Sugar": (mk_df.get('ZCE_Sugar'), "#F8F8FF", True),
+            "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32", True),
+            "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True),
+            "EIA Crude Inv. (Mock)": (mk_df.get('EIA_Crude'), "#8B4513", True),
+            "EIA Gasoline Inv. (Mock)": (mk_df.get('EIA_Gasoline'), "#4682B4", True),
+            "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B", True),
+            "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True),
+            "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96", True),
+            "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF", True),
+            "GBP/USD": (yf_df.get('GBPUSD=X'), "#8A2BE2", True),
+            "USD/CAD": (yf_df.get('CAD=X'), "#DC143C", True),
+            "USD/INR": (yf_df.get('INR=X'), "#00BFFF", True),
+            "USD/BRL": (yf_df.get('BRL=X'), "#32CD32", True),
+            "US 2Y Yield": (fr_df.get('DGS2'), "#696969", True),
+            "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000", True),
+            "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True),
+            "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B", True),
+            "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True),
+            "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True),
+            "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True),
+            "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B", True),
+            "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF", True),
+            "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00", True),
+            "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500", True),
+            "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32", True),
+            "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA", True)
         }
-        return m.get(name, (None, "#FFF"))
+        return mapping.get(asset_name, (None, "#FFFFFF", False))
 
-    target_df, theme_color = get_asset_target(selected_asset)
-
-    if m_sel == "📈 Equity Markets":
-        t1, t2 = st.tabs(["🎯 Asset Analysis", "📊 Sector X-Ray (Heatmap)"])
-        with t1:
-            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, theme_color, selected_res), use_container_width=True)
-        with t2:
-            # --- V2.11+ 终极三栏布局 ---
-            m_type = "US" if "S&P" in selected_asset or "Nasdaq" in selected_asset or "Semi" in selected_asset else ("HK" if "Hang" in selected_asset else "CN")
+    target_df, color, use_ma = get_data(selected_asset)
+    
+    if page == "📈 Equity Markets":
+        tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector X-Ray (Heatmap)"])
+        with tab1:
+            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True)
+        with tab2:
+            # 自动探测热力图市场
+            m_type = "HK" if "Hang" in selected_asset else ("CN" if "SSE" in selected_asset else "US")
             
-            c_tree, c_bar, c_ctrl = st.columns([15, 0.8, 1.2])
+            c_tree, c_perf, c_period = st.columns([15, 0.8, 1.2])
             
-            with c_ctrl:
+            with c_period:
                 st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
                 st.markdown("<p style='color:gray; font-size:12px; margin-bottom:5px;'>Period</p>", unsafe_allow_html=True)
-                lk = st.radio("Lookback", ["1D", "5D", "1M", "YTD"], index=3, label_visibility="collapsed")
-            
-            # 数据计算
-            raw_h, hier = fetch_heatmap_data(m_type)
-            # 计算表现 (复用逻辑)
-            def calc_perf(df_r, h_list, look):
-                if df_r.empty: return pd.DataFrame()
-                res_rows = []
-                for sec, sub, tk, wt in h_list:
-                    if tk in df_r.columns:
-                        s = df_r[tk].dropna()
-                        if len(s) < 2: continue
-                        now = s.iloc[-1]
-                        if look == "1D": old = s.iloc[-2]
-                        elif look == "5D": old = s.iloc[-min(len(s),6)]
-                        elif look == "1M": old = s.iloc[-min(len(s),22)]
-                        else: 
-                            ytd = s[s.index.year == datetime.date.today().year]
-                            old = ytd.iloc[0] if not ytd.empty else s.iloc[0]
-                        res_rows.append({'Sector':sec, 'Sub':sub, 'Perf':((now-old)/old)*100, 'Weight':wt})
-                return pd.DataFrame(res_rows)
-            
-            if m_type != "CN": df_final = calc_perf(raw_h, hier, lk)
-            else: 
-                # CN 接口直接带涨跌幅
-                df_final = pd.DataFrame([{'Sector':'China', 'Sub':r['板块'], 'Perf':float(r['涨跌幅']), 'Weight':10} for _,r in raw_h.iterrows()])
-            
-            with c_tree:
-                if not df_final.empty:
-                    fig_tree = px.treemap(df_final, path=[px.Constant(m_type), 'Sector', 'Sub'], values='Weight', color='Perf',
-                                          color_continuous_scale=[[0, '#FF4B4B'], [0.5, '#111111'], [1.0, '#00CC96']], color_continuous_midpoint=0)
-                    fig_tree.update_layout(height=490, margin=dict(l=0, r=0, t=0, b=0), template="plotly_dark", coloraxis_showscale=False)
-                    fig_tree.update_traces(customdata=df_final[['Perf']], texttemplate="<b>%{label}</b><br>%{customdata[0]:.2f}%", root_color="#000")
-                    st.plotly_chart(fig_tree, use_container_width=True, config={'displayModeBar': False})
-            
-            with c_bar:
-                if not df_final.empty:
-                    fig_bar = go.Figure(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(
-                        colorscale=[[0, '#FF4B4B'], [0.5, '#111111'], [1.0, '#00CC96']],
-                        cmin=df_final['Perf'].min(), cmax=df_final['Perf'].max(), showscale=True,
-                        colorbar=dict(title=dict(text=f"{lk}%", font=dict(size=11)), thickness=15, len=1.0, x=0, y=0.5))))
-                    fig_bar.update_layout(height=490, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis_visible=False, yaxis_visible=False)
-                    st.plotly_chart(fig_bar, use_container_width=False, config={'displayModeBar': False})
+                lookback = st.radio("L", ["1D", "5D", "1M", "YTD"], index=3, label_visibility="collapsed")
 
+            raw_h, hier = fetch_market_heatmap_raw(m_type)
+            df_t = calculate_heatmap_performance(raw_h, hier, lookback, m_type)
+
+            with c_tree:
+                if not df_t.empty:
+                    fig_t = px.treemap(df_t, path=[px.Constant(f"{m_type} Market"), 'Sector', 'Sub'], values='Weight', color='Perf',
+                                       color_continuous_scale=[[0, '#FF4B4B'], [0.5, '#111111'], [1.0, '#00CC96']], color_continuous_midpoint=0)
+                    fig_t.update_layout(height=490, margin=dict(l=0, r=0, t=0, b=0), template="plotly_dark", coloraxis_showscale=False)
+                    fig_t.update_traces(customdata=df_t[['Perf']], texttemplate="<b>%{label}</b><br>%{customdata[0]:.2f}%", root_color="#000")
+                    st.plotly_chart(fig_t, use_container_width=True, config={'displayModeBar': False})
+            
+            with c_perf:
+                if not df_t.empty:
+                    fig_p = go.Figure(go.Scatter(x=[None], y=[None], mode='markers',
+                        marker=dict(colorscale=[[0, '#FF4B4B'], [0.5, '#111111'], [1.0, '#00CC96']],
+                                    cmin=df_t['Perf'].min(), cmax=df_t['Perf'].max(), showscale=True,
+                                    colorbar=dict(title=dict(text=f"{lookback}%", font=dict(size=12)),
+                                                  thickness=15, len=1.0, x=0, y=0.5, yanchor="middle"))))
+                    fig_p.update_layout(height=490, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
+                    st.plotly_chart(fig_p, use_container_width=False, config={'displayModeBar': False})
     else:
-        # 非权益市场，直接显示主图
-        st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, theme_color, selected_res), use_container_width=True)
+        st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True)
