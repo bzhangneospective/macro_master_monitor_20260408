@@ -11,27 +11,22 @@ from fredapi import Fred
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.4", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.5", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-        /* 1. 微调顶部安全边距，2.5rem 刚好露出选项卡，不浪费像素 */
         .block-container { padding-top: 2.5rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
         
-        /* 2. 暴力切除 Streamlit 绘图组件自带的 1rem (16px) 底部垃圾空白，彻底消灭滚动条 */
+        /* 暴力切除 Streamlit 绘图组件自带的 1rem (16px) 底部垃圾空白 */
         div[data-testid="stPlotlyChart"] { margin-bottom: -15px !important; }
         
-        /* 仅隐藏右上角多余主菜单，保留侧边栏呼出按钮 */
         #MainMenu {visibility: hidden;} 
         footer {visibility: hidden;}
         
         .stTabs [data-baseweb="tab-list"] { gap: 24px; }
         .stTabs [data-baseweb="tab"] { height: 40px; font-size: 16px; font-weight: 600; }
         
-        /* 强制 Period Radio 不换行并紧凑 */
         div[data-testid="stRadio"] label { white-space: nowrap; font-size: 12px !important; padding: 2px 0px; }
-        
-        /* 消除中间 Colorbar 栏的额外边距 */
         [data-testid="column"]:nth-child(2) { padding-left: 0px !important; padding-right: 0px !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -205,7 +200,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 
     title_str = f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum (PPO): {mom_val:.2f}%</span>" if show_ma else title
     fig.update_layout(
-        height=490, 
+        height=470,  # <--- 统一降维至 470px
         margin=dict(l=10, r=10, t=60, b=10), 
         template="plotly_dark", 
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
@@ -222,7 +217,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.4")
+    st.title("Macro Terminal V3.5")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
@@ -327,7 +322,6 @@ if db:
             c_tree, c_perf, c_period = st.columns([15, 0.8, 1.2])
             
             with c_period:
-                # 核心修复：合并 markdown，杜绝产生带 margin 的多余 HTML 容器
                 st.markdown("""
                     <div style='height:40px;'></div>
                     <div style='color:gray; font-size:12px; margin-bottom:5px; font-weight:bold;'>Period</div>
@@ -341,7 +335,7 @@ if db:
                 if not df_t.empty:
                     fig_t = px.treemap(df_t, path=[px.Constant(f"{m_type} Market"), 'Sector', 'Sub'], values='Weight', color='Perf',
                                        color_continuous_scale=[[0, '#FF4B4B'], [0.5, '#111111'], [1.0, '#00CC96']], color_continuous_midpoint=0)
-                    fig_t.update_layout(height=490, margin=dict(l=0, r=0, t=0, b=0), template="plotly_dark", coloraxis_showscale=False)
+                    fig_t.update_layout(height=470, margin=dict(l=0, r=0, t=0, b=0), template="plotly_dark", coloraxis_showscale=False)  # <--- 统一降维至 470px
                     fig_t.update_traces(customdata=df_t[['Perf']], texttemplate="<b>%{label}</b><br>%{customdata[0]:.2f}%", root_color="#000")
                     st.plotly_chart(fig_t, use_container_width=True, config={'displayModeBar': False})
             
@@ -352,7 +346,7 @@ if db:
                                     cmin=df_t['Perf'].min(), cmax=df_t['Perf'].max(), showscale=True,
                                     colorbar=dict(title=dict(text=f"{lookback}%", font=dict(size=12)),
                                                   thickness=15, len=1.0, x=0, y=0.5, yanchor="middle"))))
-                    fig_p.update_layout(height=490, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
+                    fig_p.update_layout(height=470, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))  # <--- 统一降维至 470px
                     st.plotly_chart(fig_p, use_container_width=False, config={'displayModeBar': False})
     else:
         st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma), use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
