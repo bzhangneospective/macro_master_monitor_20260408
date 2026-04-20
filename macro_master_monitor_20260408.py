@@ -11,19 +11,23 @@ from fredapi import Fred
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.0", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.1", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
         .block-container { padding-top: 1rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
         
-        /* [修复重点] 删除了 header {visibility: hidden;}，确保侧边栏呼出按钮随时可见 */
-        #MainMenu {visibility: hidden;} /* 仅隐藏右上角多余菜单 */
+        /* 修复侧边栏：仅隐藏多余主菜单，保留侧边栏呼出按钮 */
+        #MainMenu {visibility: hidden;} 
         footer {visibility: hidden;}
         
         .stTabs [data-baseweb="tab-list"] { gap: 24px; }
         .stTabs [data-baseweb="tab"] { height: 40px; font-size: 16px; font-weight: 600; }
+        
+        /* 强制 Period Radio 不换行并紧凑 */
         div[data-testid="stRadio"] label { white-space: nowrap; font-size: 12px !important; padding: 2px 0px; }
+        
+        /* 消除中间 Colorbar 栏的额外边距 */
         [data-testid="column"]:nth-child(2) { padding-left: 0px !important; padding-right: 0px !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -35,7 +39,6 @@ st.markdown("""
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # 1. 恢复全量 YF 资产
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -51,7 +54,6 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 2. 恢复全量 FRED 资产
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS'
@@ -66,7 +68,6 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 3. 恢复全量 AKShare 商品及 Mock 数据
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
         'SHFE_Zinc': 'zn0', 'SHFE_Nickel': 'ni0', 'SHFE_Rebar': 'rb0',
@@ -135,6 +136,8 @@ def fetch_market_heatmap_raw(market_type):
             hierarchy = [('A-Share', row['板块'], row['板块'], 10.0) for _, row in df_cn.iterrows()]
             return df_cn, hierarchy
         except: return pd.DataFrame(), []
+    
+    return pd.DataFrame(), []
 
 def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
     if raw_data.empty: return pd.DataFrame()
@@ -196,16 +199,26 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
         y_max = last_df['High'].max() if has_ohlc else last_df[close_col].max()
         fig.update_layout(xaxis_range=[last_df.index[0], last_df.index[-1]], yaxis_range=[y_min*0.95, y_max*1.05])
 
-    title_str = f"{title} <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>" if show_ma else title
-    fig.update_layout(height=490, margin=dict(l=10, r=10, t=50, b=10), template="plotly_dark", title=title_str, yaxis=dict(side="right"), xaxis=dict(rangeslider=dict(visible=False)))
+    # 修复：保护标题渲染不被折叠，增加 t=60 呼吸空间
+    title_str = f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum (PPO): {mom_val:.2f}%</span>" if show_ma else title
+    fig.update_layout(
+        height=490, 
+        margin=dict(l=10, r=10, t=60, b=10), 
+        template="plotly_dark", 
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        title=dict(text=title_str, font=dict(size=24)), 
+        yaxis=dict(side="right", showgrid=True, gridcolor='rgba(128,128,128,0.15)', fixedrange=False), 
+        xaxis=dict(rangeslider=dict(visible=False), showgrid=False),
+        hovermode="x unified"
+    )
     return fig
 
 # ==========================================
-# 4. Bloomberg Dashboard UI (Full Restoration)
+# 4. Bloomberg Dashboard UI
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.0")
+    st.title("Macro Terminal V3.1")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
@@ -238,7 +251,7 @@ if db:
         if df1 is not None and df2 is not None and not df1.empty and not df2.empty: return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna()
         return None
 
-    # 彻底恢复 V2.1 的完整数据映射，并带入 MA 显示控制
+    # 彻底恢复完整数据映射，包含利差与比例运算
     def get_data(asset_name):
         mapping = {
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False),
