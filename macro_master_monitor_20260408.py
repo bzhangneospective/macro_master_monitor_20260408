@@ -202,7 +202,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True):
 
     title_str = f"{title} <span style='color:{mom_color}; font-size:14px;'>Momentum (PPO): {mom_val:.2f}%</span>" if show_ma else title
     fig.update_layout(
-        height=490, 
+        height=480, 
         margin=dict(l=10, r=10, t=60, b=10), 
         template="plotly_dark", 
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
