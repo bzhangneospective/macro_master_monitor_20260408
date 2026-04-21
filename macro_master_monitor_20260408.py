@@ -9,12 +9,13 @@ import akshare as ak
 from fredapi import Fred
 import warnings
 
+# 忽略 Pandas 降采样的 Future Warning
 warnings.filterwarnings('ignore')
 
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.8", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.9", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -35,17 +36,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. Institutional Data Engine (No Mock Data)
+# 2. Institutional Data Engine (Robust & Real Data Only)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # 【新增】DX-Y.NYB (美元指数), ^VIX (恐慌指数)
+    # 【修复】使用 USDCNY=X 替代 CNH=X，加入美元指数与 VIX
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
-        'CNH=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT',
+        'USDCNY=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT',
         'DX-Y.NYB', '^VIX'
     ]
     yf_data = {}
@@ -53,18 +54,17 @@ def fetch_global_data():
         yf_raw = yf.download(yf_tickers, period="max", progress=False)
         for t in yf_tickers:
             try:
-                # 机构级容错：去除全空列，避免画图报错
                 df = pd.DataFrame({'Open': yf_raw['Open'][t], 'High': yf_raw['High'][t], 'Low': yf_raw['Low'][t], 'Close': yf_raw['Close'][t]}).dropna(how='all')
                 if not df.empty:
                     yf_data[t] = df.ffill().dropna()
             except: pass
     except: pass
 
-    # 【新增】DFII10 (美国10年期通胀保值债券收益率 / 实际利率)
+    # 【修复】加入官方息差 T10Y2Y, T10Y3M 以及实际利率 DFII10
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS',
-        'DFII10'
+        'DFII10', 'T10Y2Y', 'T10Y3M'
     ]
     fred_data = {}
     try:
@@ -72,8 +72,8 @@ def fetch_global_data():
         for ticker in fred_tickers:
             try:
                 series = fred.get_series(ticker)
-                # 机构级清洗：前向填充缺失值，避免画出断线
-                fred_data[ticker] = pd.DataFrame({'Close': series}).ffill().dropna()
+                # 【修复】加入 bfill() 双向填充，防止起步数据缺失导致的整表作废
+                fred_data[ticker] = pd.DataFrame({'Close': series}).ffill().bfill().dropna()
             except: pass
     except: pass
 
@@ -183,7 +183,6 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     
     df = resample_data(df_raw.copy(), timeframe)
     
-    # 【核心优化】：日线级别强制截断数据量，避免向前端抛送数万节点导致卡顿崩溃
     if timeframe == "Daily" and len(df) > 1500:
         df = df.iloc[-1500:]
 
@@ -195,10 +194,8 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     if has_ohlc: 
         fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], increasing_line_color='#00CC96', decreasing_line_color='#FF4B4B'))
     else: 
-        # 对于非 OHLC 折线图，强制开启 WebGL 渲染，突破 60FPS 丝滑度
         fig.add_trace(go.Scattergl(x=df.index, y=df[close_col], mode='lines', line=dict(color=base_color, width=2.5)))
 
-    # 获取最后价格并格式化
     last_price = df[close_col].iloc[-1]
     price_display = f"{last_price:,.2f} {unit}" if unit != "%" else f"{last_price:.4f}%"
 
@@ -213,7 +210,6 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         fig.add_trace(go.Scattergl(x=df.index, y=df['EMA60'], mode='lines', name='EMA60', line=dict(color='#FF4B4B', width=1.3)))
         fig.add_trace(go.Scattergl(x=df.index, y=df['EMA120'], mode='lines', name='EMA120', line=dict(color='#AB63FA', width=1.3, dash='dot')))
 
-    # Fat Candles 视野自适应
     if len(df) > 10 and timeframe != "MAX":
         last_df = df.iloc[-min(len(df), 180):]
         y_min = last_df['Low'].min() if has_ohlc else last_df[close_col].min()
@@ -234,7 +230,6 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         xaxis=dict(rangeslider=dict(visible=False), showgrid=False),
         hovermode="x unified",
         dragmode='pan',
-        # 【核心优化】：锁定 UI 状态，防止 Streamlit 重渲染导致图表跳动
         uirevision=title + timeframe 
     )
     return fig
@@ -244,7 +239,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.8")
+    st.title("Macro Terminal V3.9")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
@@ -282,8 +277,8 @@ if db:
             "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C", False, "%"),
             "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500", False, "%"),
             "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700", False, "%"),
-            "10Y-2Y Spread": (safe_sub(fr_df.get('DGS10'), fr_df.get('DGS2')), "#FF4B4B", False, "%"),
-            "10Y-3M Spread": (safe_sub(fr_df.get('DGS10'), fr_df.get('DGS3MO')), "#DC143C", False, "%"),
+            "10Y-2Y Spread": (fr_df.get('T10Y2Y'), "#FF4B4B", False, "%"), # 【修复】直接挂载官方息差数据
+            "10Y-3M Spread": (fr_df.get('T10Y3M'), "#DC143C", False, "%"), # 【修复】直接挂载官方息差数据
             "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False, "%"),
             "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, ""),
             "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, ""),
@@ -312,7 +307,7 @@ if db:
             "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32", True, "CNY"),
             "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True, "CNY"),
             "US Dollar Index (DXY)": (yf_df.get('DX-Y.NYB'), "#1E90FF", True, ""),
-            "USD/CNH": (yf_df.get('CNH=X'), "#FF4B4B", True, ""),
+            "USD/CNH": (yf_df.get('USDCNY=X'), "#FF4B4B", True, ""), # 【修复】切换离岸为在岸汇率抓取
             "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True, ""),
             "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96", True, ""),
             "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF", True, ""),
@@ -340,10 +335,9 @@ if db:
 
     target_df, color, use_ma, unit = get_data(selected_asset)
     
-    # 统一精简的渲染配置
     plot_config = {
         'scrollZoom': True, 
-        'displayModeBar': False,  # 隐藏右上角杂乱的工具栏
+        'displayModeBar': False,  
         'showTips': False, 
         'displaylogo': False
     }
