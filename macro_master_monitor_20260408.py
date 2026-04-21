@@ -63,7 +63,7 @@ def fetch_global_data():
     # 【修复】移除了失效的 EMBI 利差代码，保留官方息差 T10Y2Y, T10Y3M 以及实际利率 DFII10
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
-        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'DFII10', 'T10Y2Y', 'T10Y3M'
+        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'DFII10', 'T10Y2Y', 'T10Y3M'
     ]
     fred_data = {}
     try:
