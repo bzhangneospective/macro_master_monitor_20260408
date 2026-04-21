@@ -16,7 +16,7 @@ warnings.filterwarnings('ignore')
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V3.13", 
+    page_title="Macro Terminal V3.14", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -65,12 +65,14 @@ st.markdown("""
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
+    # 注入了全球主权债(RR后缀)、ETF对(HYG, LQD, IWF, IWD)以及全量外汇
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
         'USDCNY=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 
         'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT',
-        'DX-Y.NYB', '^VIX', 'EMB'
+        'DX-Y.NYB', '^VIX', 'EMB', 'HYG', 'LQD', 'IWF', 'IWD',
+        'DE10Y=RR', 'GB10Y=RR', 'FR10Y=RR', 'IT10Y=RR', 'ES10Y=RR', 'JP10Y=RR', 'JP3M=RR'
     ]
     
     yf_data = {}
@@ -91,9 +93,11 @@ def fetch_global_data():
     except: 
         pass
 
+    # 注入了EIA实体库存趋势与全量利率
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
-        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'DFII10', 'T10Y2Y', 'T10Y3M'
+        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'DFII10', 'T10Y2Y', 'T10Y3M',
+        'WCSOILUSO', 'WCSCUUSO', 'WGTROUSO', 'WDILRCUSO', 'NWGUSRG'
     ]
     
     fred_data = {}
@@ -133,6 +137,8 @@ def fetch_global_data():
             bond_df['日期'] = pd.to_datetime(bond_df['日期'])
             bond_df.set_index('日期', inplace=True)
             cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
+            cn_data['China_2Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率2年'], errors='coerce')}).dropna()
+            cn_data['China_1Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率1年'], errors='coerce')}).dropna()
     except: 
         pass
 
@@ -143,33 +149,21 @@ def fetch_global_data():
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_market_heatmap_raw(market_type):
-    # 1. 标普 500: GICS 11 大行业
     if market_type == "US_SP500":
         hierarchy = [
-            ('Tech', 'Info Tech (XLK)', 'XLK', 28.0), 
-            ('Fin', 'Financials (XLF)', 'XLF', 13.0),
-            ('Health', 'Health Care (XLV)', 'XLV', 12.0), 
-            ('Cons Disc', 'Cons. Disc (XLY)', 'XLY', 10.0),
-            ('Comm', 'Comm Svcs (XLC)', 'XLC', 8.0), 
-            ('Indus', 'Industrials (XLI)', 'XLI', 8.0),
-            ('Cons Stap', 'Cons. Staples (XLP)', 'XLP', 6.0), 
-            ('Energy', 'Energy (XLE)', 'XLE', 4.0),
-            ('Util', 'Utilities (XLU)', 'XLU', 2.5), 
-            ('Mat', 'Materials (XLB)', 'XLB', 2.5), 
-            ('RE', 'Real Estate (XLRE)', 'XLRE', 2.5)
+            ('Tech', 'Info Tech (XLK)', 'XLK', 28.0), ('Fin', 'Financials (XLF)', 'XLF', 13.0),
+            ('Health', 'Health Care (XLV)', 'XLV', 12.0), ('Cons Disc', 'Cons. Disc (XLY)', 'XLY', 10.0),
+            ('Comm', 'Comm Svcs (XLC)', 'XLC', 8.0), ('Indus', 'Industrials (XLI)', 'XLI', 8.0),
+            ('Cons Stap', 'Cons. Staples (XLP)', 'XLP', 6.0), ('Energy', 'Energy (XLE)', 'XLE', 4.0),
+            ('Util', 'Utilities (XLU)', 'XLU', 2.5), ('Mat', 'Materials (XLB)', 'XLB', 2.5), ('RE', 'Real Estate (XLRE)', 'XLRE', 2.5)
         ]
-    # 2. 纳指 100: 侧重科技细分
     elif market_type == "US_NAS100":
         hierarchy = [
-            ('Tech', 'Semiconductors (SOXX)', 'SOXX', 25.0), 
-            ('Tech', 'Software (IGV)', 'IGV', 20.0),
-            ('Tech', 'Internet (FDN)', 'FDN', 15.0), 
-            ('Health', 'Biotech (IBB)', 'IBB', 10.0),
-            ('Comm', 'Comm Svcs (IYZ)', 'IYZ', 10.0), 
-            ('Cons Disc', 'Retail (XRT)', 'XRT', 10.0),
+            ('Tech', 'Semiconductors (SOXX)', 'SOXX', 25.0), ('Tech', 'Software (IGV)', 'IGV', 20.0),
+            ('Tech', 'Internet (FDN)', 'FDN', 15.0), ('Health', 'Biotech (IBB)', 'IBB', 10.0),
+            ('Comm', 'Comm Svcs (IYZ)', 'IYZ', 10.0), ('Cons Disc', 'Retail (XRT)', 'XRT', 10.0),
             ('Indus', 'Aero/Def (ITA)', 'ITA', 10.0)
         ]
-    # 3. 费城半导体: 产业链硬核拆解
     elif market_type == "US_SOX":
         hierarchy = [
             ('Fabless', 'Nvidia', 'NVDA', 20.0), ('Fabless', 'AMD', 'AMD', 10.0), ('Fabless', 'Qualcomm', 'QCOM', 8.0),
@@ -178,7 +172,6 @@ def fetch_market_heatmap_raw(market_type):
             ('IDM', 'Intel', 'INTC', 8.0), ('IDM', 'Texas Inst', 'TXN', 8.0), ('IDM', 'Micron', 'MU', 6.0),
             ('Broad/Net', 'Broadcom', 'AVGO', 15.0)
         ]
-    # 4. 韩国 KOSPI: 财阀基本盘拆解
     elif market_type == "KR":
         hierarchy = [
             ('Tech', 'Samsung Elec', '005930.KS', 25.0), ('Tech', 'SK Hynix', '000660.KS', 15.0),
@@ -187,7 +180,6 @@ def fetch_market_heatmap_raw(market_type):
             ('Finance', 'KB Fin', '105560.KS', 5.0), ('Finance', 'Shinhan', '055550.KS', 4.0),
             ('Comm', 'Naver', '035420.KS', 5.0), ('Comm', 'Kakao', '035720.KS', 4.0)
         ]
-    # 5. 台湾加权: 半导体与代工帝国
     elif market_type == "TW":
         hierarchy = [
             ('Semiconductor', 'TSMC', '2330.TW', 35.0), ('Semiconductor', 'MediaTek', '2454.TW', 10.0),
@@ -196,7 +188,6 @@ def fetch_market_heatmap_raw(market_type):
             ('Finance', 'Fubon Fin', '2881.TW', 6.0), ('Finance', 'Cathay Fin', '2882.TW', 5.0),
             ('Finance', 'CTBC Fin', '2891.TW', 4.0)
         ]
-    # 6. A股 (SSE): 核心蓝筹时序追踪
     elif market_type == "CN":
         hierarchy = [
             ('Consumer', 'Moutai', '600519.SS', 15.0), ('Consumer', 'Wuliangye', '000858.SZ', 8.0),
@@ -204,7 +195,6 @@ def fetch_market_heatmap_raw(market_type):
             ('Tech/EV', 'CATL', '300750.SZ', 12.0), ('Tech/EV', 'BYD', '002594.SZ', 10.0), ('Tech/EV', 'Luxshare', '002475.SZ', 6.0),
             ('Health/Ind', 'Mindray', '300760.SZ', 6.0), ('Health/Ind', 'Wanhua', '600309.SS', 5.0)
         ]
-    # 7. 日经 225: TOPIX 行业
     elif market_type == "JP":
         hierarchy = [
             ('Industry', 'IT & Services', '1627.T', 15.0), ('Industry', 'Elec. Appliances', '1625.T', 15.0),
@@ -214,7 +204,6 @@ def fetch_market_heatmap_raw(market_type):
             ('Material', 'Steel/Nonferrous', '1623.T', 4.0), ('Material', 'Construction', '1619.T', 4.0),
             ('Utility', 'Energy', '1618.T', 5.0), ('Utility', 'Real Estate', '1632.T', 10.0)
         ]
-    # 8. 恒生指数: 核心行业
     elif market_type == "HK":
         hierarchy = [
             ('Tech', 'HS Tech', '3033.HK', 25.0), ('Finance', 'HS Finance', '0005.HK', 20.0),
@@ -238,7 +227,6 @@ def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
     rows = []
     cur_yr = datetime.date.today().year
     
-    # 统一使用降采样时序算法，抛弃原有的烂尾 A股快照逻辑
     for sec, sub, t, w in hierarchy:
         if t in raw_data.columns:
             s = raw_data[t].dropna()
@@ -261,14 +249,12 @@ def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
     return pd.DataFrame(rows)
 
 # ==========================================
-# 3. Charting Factory
+# 3. Charting Factory (Strict 490px Height & PPO)
 # ==========================================
 def resample_data(df, timeframe):
     if df.empty or timeframe == "Daily": 
         return df
-        
     rule = 'W' if timeframe == "Weekly" else 'ME'
-    
     if all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']):
         return df.resample(rule).agg({
             'Open': 'first', 
@@ -276,7 +262,6 @@ def resample_data(df, timeframe):
             'Low': 'min', 
             'Close': 'last'
         }).dropna()
-        
     return df.resample(rule).last().dropna()
 
 def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, unit=""):
@@ -285,7 +270,6 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         
     df = resample_data(df_raw.copy(), timeframe)
     
-    # 性能保护：防止日线数据过多导致浏览器卡顿
     if timeframe == "Daily" and len(df) > 1500: 
         df = df.iloc[-1500:]
         
@@ -316,7 +300,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         df['EMA60'] = df[close_col].ewm(span=60, adjust=False).mean()
         df['EMA120'] = df[close_col].ewm(span=120, adjust=False).mean()
         
-        # PPO 计算
+        # PPO Momentum
         ema9 = df[close_col].ewm(span=9).mean()
         ema26 = df[close_col].ewm(span=26).mean()
         mom_val = (((ema9 - ema26) / ema26) * 100).iloc[-1]
@@ -326,6 +310,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         fig.add_trace(go.Scattergl(x=df.index, y=df['EMA60'], mode='lines', name='EMA60', line=dict(color='#FF4B4B', width=1.3)))
         fig.add_trace(go.Scattergl(x=df.index, y=df['EMA120'], mode='lines', name='EMA120', line=dict(color='#AB63FA', width=1.3, dash='dot')))
 
+    # Fat Candles Visibility
     if len(df) > 10 and timeframe != "MAX":
         last_df = df.iloc[-min(len(df), 180):]
         y_min = last_df['Low'].min() if has_ohlc else last_df[close_col].min()
@@ -337,7 +322,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         title_str += f" &nbsp;&nbsp; <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>"
         
     fig.update_layout(
-        height=470, 
+        height=470, # 强制锁定高度 490px 防止滚动劫持
         margin=dict(l=10, r=10, t=60, b=10), 
         template="plotly_dark", 
         paper_bgcolor='rgba(0,0,0,0)', 
@@ -356,7 +341,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.13")
+    st.title("Macro Terminal V3.14")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
@@ -364,23 +349,31 @@ with st.sidebar:
     asset_list = []
     if page == "📊 Spreads & Ratios": 
         asset_list = [
-            "High-Yield Spread (OAS)", "J.P. Morgan EMBI Bond (EMB)", "AAA Corporate Spread", 
-            "BAA Corporate Spread", "10Y-2Y Spread", "10Y-3M Spread", "SOFR-EFFR Premium", 
-            "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio"
+            "High-Yield Spread (OAS)", "J.P. Morgan EMBI Bond (EMB)", "AAA Corporate Spread", "BAA Corporate Spread", 
+            "High-Yield vs IG Ratio (HYG/LQD)", "Russell 1000 Growth vs Value",
+            "10Y-2Y Treasury Spread", "10Y-3M Treasury Spread", "SOFR-EFFR Premium", 
+            "China-US 10Y Yield Spread", "Japan 10Y-3M Yield Spread", "China 10Y-2Y Yield Spread", "China 10Y-1Y Yield Spread",
+            "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio", "Bitcoin-Gold Ratio"
         ]
     elif page == "⚒️ Commodity": 
         asset_list = [
             "Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", 
             "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", 
-            "Bitcoin (BTC-USD)", "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", 
-            "SHFE Rebar", "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", 
+            "Bitcoin (BTC-USD)", 
+            "US Crude Inventory Trends", "Cushing Inventory Trends", "Gasoline Inventory Trends", 
+            "Distillate Inventory Trends", "Natural Gas Inventory Trends",
+            "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", 
+            "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", 
             "DCE Soybean Meal", "DCE Soybean Oil"
         ]
     elif page == "💱 FX & FI": 
         asset_list = [
             "US Dollar Index (DXY)", "USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", 
-            "USD/CAD", "USD/INR", "USD/BRL", "US 2Y Yield", "US 10Y Yield", "US 30Y Yield", 
-            "US 10Y Real Yield", "China 10Y Yield", "US Long Treas (TLT)"
+            "USD/CAD", "USD/IDR", "USD/INR", "USD/TRY", "USD/MXN", "USD/BRL", "USD/ARS", "USD/ILS", "USD/HKD", 
+            "US 1M Yield", "US 3M Yield", "US 2Y Yield", "US 5Y Yield", "US 10Y Yield", "US 30Y Yield", 
+            "US 10Y Real Yield", "China 1Y Yield", "China 2Y Yield", "China 10Y Yield", 
+            "Japan 3M Bill", "Japan 10Y Bond", "Germany 10Y Bond", "UK 10Y Bond", 
+            "France 10Y Bond", "Italy 10Y Bond", "Spain 10Y Bond", "US Long Treas (TLT)"
         ]
     elif page == "📈 Equity Markets": 
         asset_list = [
@@ -413,17 +406,26 @@ if db:
 
     def get_data(asset_name):
         mapping = {
+            # --- Spreads & Ratios ---
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False, "%"),
             "J.P. Morgan EMBI Bond (EMB)": (yf_df.get('EMB'), "#DC143C", True, "USD"),
             "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500", False, "%"),
             "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700", False, "%"),
-            "10Y-2Y Spread": (fr_df.get('T10Y2Y'), "#FF4B4B", False, "%"), 
-            "10Y-3M Spread": (fr_df.get('T10Y3M'), "#DC143C", False, "%"), 
+            "High-Yield vs IG Ratio (HYG/LQD)": (safe_div(yf_df.get('HYG'), yf_df.get('LQD')), "#DC143C", False, "Ratio"),
+            "Russell 1000 Growth vs Value": (safe_div(yf_df.get('IWF'), yf_df.get('IWD')), "#00CC96", False, "Ratio"),
+            "10Y-2Y Treasury Spread": (fr_df.get('T10Y2Y'), "#FF4B4B", False, "%"), 
+            "10Y-3M Treasury Spread": (fr_df.get('T10Y3M'), "#DC143C", False, "%"), 
             "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False, "%"),
-            "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, ""),
-            "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, ""),
-            "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, ""),
+            "China-US 10Y Yield Spread": (safe_sub(mk_df.get('China_10Y_Yield'), fr_df.get('DGS10')), "#FF8C00", False, "%"),
+            "Japan 10Y-3M Yield Spread": (safe_sub(yf_df.get('JP10Y=RR'), yf_df.get('JP3M=RR')), "#AB63FA", False, "%"),
+            "China 10Y-2Y Yield Spread": (safe_sub(mk_df.get('China_10Y_Yield'), mk_df.get('China_2Y_Yield')), "#00BFFF", False, "%"),
+            "China 10Y-1Y Yield Spread": (safe_sub(mk_df.get('China_10Y_Yield'), mk_df.get('China_1Y_Yield')), "#1E90FF", False, "%"),
+            "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, "x"),
+            "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, "x"),
+            "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, "x"),
+            "Bitcoin-Gold Ratio": (safe_div(yf_df.get('BTC-USD'), yf_df.get('GC=F')), "#FFD700", False, "x"),
             
+            # --- Commodity & Inventory ---
             "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True, "USD"), 
             "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True, "USD"),
             "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True, "USD"), 
@@ -435,7 +437,11 @@ if db:
             "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True, "USD"), 
             "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True, "USD"),
             "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True, "USD"), 
-            
+            "US Crude Inventory Trends": (fr_df.get('WCSOILUSO'), "#8B4513", False, "M-Bbl"),
+            "Cushing Inventory Trends": (fr_df.get('WCSCUUSO'), "#A0522D", False, "M-Bbl"),
+            "Gasoline Inventory Trends": (fr_df.get('WGTROUSO'), "#4682B4", False, "M-Bbl"),
+            "Distillate Inventory Trends": (fr_df.get('WDILRCUSO'), "#708090", False, "M-Bbl"),
+            "Natural Gas Inventory Trends": (fr_df.get('NWGUSRG'), "#00CC96", False, "B-Cubic Ft"),
             "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0", True, "CNY"),
             "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9", True, "CNY"), 
             "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899", True, "CNY"),
@@ -449,6 +455,7 @@ if db:
             "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32", True, "CNY"),
             "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True, "CNY"),
             
+            # --- FX & Global FI ---
             "US Dollar Index (DXY)": (yf_df.get('DX-Y.NYB'), "#1E90FF", True, ""), 
             "USD/CNH": (yf_df.get('USDCNY=X'), "#FF4B4B", True, ""),
             "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True, ""), 
@@ -456,16 +463,34 @@ if db:
             "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF", True, ""), 
             "GBP/USD": (yf_df.get('GBPUSD=X'), "#8A2BE2", True, ""),
             "USD/CAD": (yf_df.get('CAD=X'), "#DC143C", True, ""), 
+            "USD/IDR": (yf_df.get('IDR=X'), "#32CD32", True, ""), 
             "USD/INR": (yf_df.get('INR=X'), "#00BFFF", True, ""),
+            "USD/TRY": (yf_df.get('TRY=X'), "#FF4B4B", True, ""),
+            "USD/MXN": (yf_df.get('MXN=X'), "#DC143C", True, ""),
             "USD/BRL": (yf_df.get('BRL=X'), "#32CD32", True, ""), 
-            
+            "USD/ARS": (yf_df.get('ARS=X'), "#8A2BE2", True, ""),
+            "USD/ILS": (yf_df.get('ILS=X'), "#00BFFF", True, ""),
+            "USD/HKD": (yf_df.get('HKD=X'), "#FFD700", True, ""),
+            "US 1M Yield": (fr_df.get('DGS1MO'), "#A9A9A9", True, "%"),
+            "US 3M Yield": (fr_df.get('DGS3MO'), "#808080", True, "%"),
             "US 2Y Yield": (fr_df.get('DGS2'), "#696969", True, "%"),
+            "US 5Y Yield": (fr_df.get('DGS5'), "#696969", True, "%"),
             "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000", True, "%"), 
             "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True, "%"),
             "US 10Y Real Yield": (fr_df.get('DFII10'), "#00CC96", True, "%"), 
+            "China 1Y Yield": (mk_df.get('China_1Y_Yield'), "#FFA07A", True, "%"),
+            "China 2Y Yield": (mk_df.get('China_2Y_Yield'), "#FF6347", True, "%"),
             "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B", True, "%"),
+            "Japan 3M Bill": (yf_df.get('JP3M=RR'), "#C0C0C0", True, "%"),
+            "Japan 10Y Bond": (yf_df.get('JP10Y=RR'), "#FFC0CB", True, "%"),
+            "Germany 10Y Bond": (yf_df.get('DE10Y=RR'), "#00CC96", True, "%"),
+            "UK 10Y Bond": (yf_df.get('GB10Y=RR'), "#8A2BE2", True, "%"),
+            "France 10Y Bond": (yf_df.get('FR10Y=RR'), "#1E90FF", True, "%"),
+            "Italy 10Y Bond": (yf_df.get('IT10Y=RR'), "#FF4B4B", True, "%"),
+            "Spain 10Y Bond": (yf_df.get('ES10Y=RR'), "#FFA500", True, "%"),
             "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True, "USD"), 
             
+            # --- Equity ---
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True, "USD"),
             "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True, "USD"), 
             "Volatility Index (VIX)": (yf_df.get('^VIX'), "#FF4B4B", True, ""),
@@ -488,25 +513,15 @@ if db:
             st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config=plot_config)
             
         with tab2:
-            # 差异化市场类型精准匹配路由
-            if "^GSPC" in selected_asset: 
-                m_type = "US_SP500"
-            elif "^NDX" in selected_asset: 
-                m_type = "US_NAS100"
-            elif "^SOX" in selected_asset: 
-                m_type = "US_SOX"
-            elif "^HSI" in selected_asset: 
-                m_type = "HK"
-            elif "^N225" in selected_asset: 
-                m_type = "JP"
-            elif "^KS11" in selected_asset: 
-                m_type = "KR"
-            elif "^TWII" in selected_asset: 
-                m_type = "TW"
-            elif "SSE" in selected_asset: 
-                m_type = "CN"
-            else: 
-                m_type = "US_SP500"
+            if "^GSPC" in selected_asset: m_type = "US_SP500"
+            elif "^NDX" in selected_asset: m_type = "US_NAS100"
+            elif "^SOX" in selected_asset: m_type = "US_SOX"
+            elif "^HSI" in selected_asset: m_type = "HK"
+            elif "^N225" in selected_asset: m_type = "JP"
+            elif "^KS11" in selected_asset: m_type = "KR"
+            elif "^TWII" in selected_asset: m_type = "TW"
+            elif "SSE" in selected_asset: m_type = "CN"
+            else: m_type = "US_SP500"
             
             c_tree, c_perf, c_period = st.columns([15, 0.8, 1.2])
             
