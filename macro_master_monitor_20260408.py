@@ -318,7 +318,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         title_str += f" &nbsp;&nbsp; <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>"
         
     fig.update_layout(
-        height=470, # 改为完美的 470px
+        height=470, 
         margin=dict(l=10, r=10, t=60, b=10), 
         template="plotly_dark", 
         paper_bgcolor='rgba(0,0,0,0)', 
@@ -342,14 +342,13 @@ with st.sidebar:
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
-    # 【战术隐藏】：删去了前端容易报错的指标，保留稳健指标供汇报展示
     asset_list = []
     if page == "📊 Spreads & Ratios": 
         asset_list = [
             "High-Yield Spread (OAS)", "J.P. Morgan EMBI Bond (EMB)", "AAA Corporate Spread", "BAA Corporate Spread", 
             "High-Yield vs IG Ratio (HYG/LQD)", "Russell 1000 Growth vs Value",
             "10Y-2Y Treasury Spread", "10Y-3M Treasury Spread", "SOFR-EFFR Premium", 
-            "China-US 10Y Yield Spread", "China 10Y-2Y Yield Spread",
+            "China-US 10Y Yield Spread", "China 10Y-2Y Yield Spread", "China 10Y-1Y Yield Spread",
             "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio", "Bitcoin-Gold Ratio"
         ]
     elif page == "⚒️ Commodity": 
@@ -357,7 +356,7 @@ with st.sidebar:
             "Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", 
             "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", 
             "Bitcoin (BTC-USD)", 
-            "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", 
+            "SHFE Gold", "SHFE Silver", "SHFE Copper", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", 
             "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", 
             "DCE Soybean Meal", "DCE Soybean Oil"
         ]
@@ -366,7 +365,9 @@ with st.sidebar:
             "US Dollar Index (DXY)", "USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", 
             "USD/CAD", "USD/IDR", "USD/INR", "USD/TRY", "USD/MXN", "USD/BRL", "USD/ARS", "USD/ILS", "USD/HKD", 
             "US 1M Yield", "US 3M Yield", "US 2Y Yield", "US 5Y Yield", "US 10Y Yield", "US 30Y Yield", 
-            "US 10Y Real Yield", "China 2Y Yield", "China 10Y Yield", "US Long Treas (TLT)"
+            "US 10Y Real Yield", "US Long Treas (TLT)",
+            "China 1Y Yield", "China 2Y Yield", "China 10Y Yield", 
+            "Germany 10Y Bond", "UK 10Y Bond", "France 10Y Bond", "Italy 10Y Bond", "Spain 10Y Bond", "Japan 10Y Bond"
         ]
     elif page == "📈 Equity Markets": 
         asset_list = [
@@ -411,6 +412,7 @@ if db:
             "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False, "%"),
             "China-US 10Y Yield Spread": (safe_sub(mk_df.get('China_10Y_Yield'), fr_df.get('DGS10')), "#FF8C00", False, "%"),
             "China 10Y-2Y Yield Spread": (safe_sub(mk_df.get('China_10Y_Yield'), mk_df.get('China_2Y_Yield')), "#00BFFF", False, "%"),
+            "China 10Y-1Y Yield Spread": (safe_sub(mk_df.get('China_10Y_Yield'), mk_df.get('China_1Y_Yield')), "#1E90FF", False, "%"),
             "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, "x"),
             "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, "x"),
             "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, "x"),
@@ -428,6 +430,8 @@ if db:
             "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True, "USD"), 
             "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True, "USD"),
             "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True, "USD"), 
+            "SHFE Gold": (mk_df.get('SHFE_Gold'), "#FFD700", True, "CNY"),
+            "SHFE Copper": (mk_df.get('SHFE_Copper'), "#B87333", True, "CNY"),
             "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0", True, "CNY"),
             "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9", True, "CNY"), 
             "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899", True, "CNY"),
@@ -464,9 +468,16 @@ if db:
             "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000", True, "%"), 
             "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True, "%"),
             "US 10Y Real Yield": (fr_df.get('DFII10'), "#00CC96", True, "%"), 
+            "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True, "USD"),
+            "China 1Y Yield": (mk_df.get('China_1Y_Yield'), "#FFD700", True, "%"),
             "China 2Y Yield": (mk_df.get('China_2Y_Yield'), "#FF6347", True, "%"),
             "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B", True, "%"),
-            "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True, "USD"), 
+            "Germany 10Y Bond": (yf_df.get('DE10Y=RR'), "#00CC96", True, "%"),
+            "UK 10Y Bond": (yf_df.get('GB10Y=RR'), "#8A2BE2", True, "%"),
+            "France 10Y Bond": (yf_df.get('FR10Y=RR'), "#1E90FF", True, "%"),
+            "Italy 10Y Bond": (yf_df.get('IT10Y=RR'), "#FF4B4B", True, "%"),
+            "Spain 10Y Bond": (yf_df.get('ES10Y=RR'), "#FFA500", True, "%"),
+            "Japan 10Y Bond": (yf_df.get('JP10Y=RR'), "#FFC0CB", True, "%"),
             
             # --- Equity ---
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True, "USD"),
@@ -488,8 +499,11 @@ if db:
         tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector X-Ray (Heatmap)"])
         
         with tab1:
-            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config=plot_config)
-            
+            if target_df is not None and not target_df.empty:
+                st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config=plot_config)
+            else:
+                st.warning(f"🚨 API 暂时未返回 {selected_asset} 的数据，请尝试点击左侧 'Force Sync Data' 刷新。")
+                
         with tab2:
             if "^GSPC" in selected_asset: m_type = "US_SP500"
             elif "^NDX" in selected_asset: m_type = "US_NAS100"
@@ -542,4 +556,7 @@ if db:
                     fig_p.update_layout(height=470, width=60, margin=dict(l=0, r=0, t=40, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
                     st.plotly_chart(fig_p, use_container_width=False, config={'displayModeBar': False})
     else:
-        st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config=plot_config)
+        if target_df is not None and not target_df.empty:
+            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config=plot_config)
+        else:
+            st.warning(f"🚨 API 暂时未返回 {selected_asset} 的数据，请尝试点击左侧 'Force Sync Data' 刷新。")
