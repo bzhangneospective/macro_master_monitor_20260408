@@ -5,4 +5,3 @@ plotly
 yfinance
 akshare
 fredapi
-https://github.com/rongardF/tvdatafeed/archive/refs/heads/main.zip
