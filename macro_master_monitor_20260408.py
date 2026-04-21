@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore')
 # ==========================================
 # 1. Page Configuration & Professional CSS
 # ==========================================
-st.set_page_config(page_title="Macro Terminal V3.9", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Macro Terminal V3.10", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -42,12 +42,12 @@ st.markdown("""
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # 【修复】使用 USDCNY=X 替代 CNH=X，加入美元指数与 VIX
+    # 【修复】加入 EMB (J.P. Morgan EMBI ETF)，保留 USDCNY=X, DX-Y.NYB, ^VIX
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
         'USDCNY=X', 'AUDUSD=X', 'JPY=X', 'IDR=X', 'INR=X', 'TRY=X', 'EURUSD=X', 'GBPUSD=X', 'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT',
-        'DX-Y.NYB', '^VIX'
+        'DX-Y.NYB', '^VIX', 'EMB'
     ]
     yf_data = {}
     try:
@@ -60,11 +60,10 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 【修复】加入官方息差 T10Y2Y, T10Y3M 以及实际利率 DFII10
+    # 【修复】移除了失效的 EMBI 利差代码，保留官方息差 T10Y2Y, T10Y3M 以及实际利率 DFII10
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
-        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'BAMLEMHBHYCRPIUSOAS',
-        'DFII10', 'T10Y2Y', 'T10Y3M'
+        'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'DFII10', 'T10Y2Y', 'T10Y3M'
     ]
     fred_data = {}
     try:
@@ -72,7 +71,7 @@ def fetch_global_data():
         for ticker in fred_tickers:
             try:
                 series = fred.get_series(ticker)
-                # 【修复】加入 bfill() 双向填充，防止起步数据缺失导致的整表作废
+                # 机构级清洗：双向填充
                 fred_data[ticker] = pd.DataFrame({'Close': series}).ffill().bfill().dropna()
             except: pass
     except: pass
@@ -239,13 +238,14 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.9")
+    st.title("Macro Terminal V3.10")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
     asset_list = []
-    if page == "📊 Spreads & Ratios": asset_list = ["High-Yield Spread (OAS)", "Emerging Market (EMBI)", "AAA Corporate Spread", "BAA Corporate Spread", "10Y-2Y Spread", "10Y-3M Spread", "SOFR-EFFR Premium", "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio"]
+    # 【修复】将失效的 EMBI 替换为 JPM EMB
+    if page == "📊 Spreads & Ratios": asset_list = ["High-Yield Spread (OAS)", "J.P. Morgan EMBI Bond (EMB)", "AAA Corporate Spread", "BAA Corporate Spread", "10Y-2Y Spread", "10Y-3M Spread", "SOFR-EFFR Premium", "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio"]
     elif page == "⚒️ Commodity": asset_list = ["Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", "Bitcoin (BTC-USD)", "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", "DCE Soybean Meal", "DCE Soybean Oil"]
     elif page == "💱 FX & FI": asset_list = ["US Dollar Index (DXY)", "USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", "USD/CAD", "USD/INR", "USD/BRL", "US 2Y Yield", "US 10Y Yield", "US 30Y Yield", "US 10Y Real Yield", "China 10Y Yield", "US Long Treas (TLT)"]
     elif page == "📈 Equity Markets": asset_list = ["S&P 500 (^GSPC)", "Nasdaq 100 (^NDX)", "Volatility Index (VIX)", "Nikkei 225 (^N225)", "Hang Seng (^HSI)", "SSE Composite", "KOSPI (^KS11)", "Taiwan (^TWII)", "Semiconductor (^SOX)"]
@@ -274,11 +274,11 @@ if db:
     def get_data(asset_name):
         mapping = {
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False, "%"),
-            "Emerging Market (EMBI)": (fr_df.get('BAMLEMHBHYCRPIUSOAS'), "#DC143C", False, "%"),
+            "J.P. Morgan EMBI Bond (EMB)": (yf_df.get('EMB'), "#DC143C", True, "USD"), # 【修复】挂载 JPM EMB 价格走势与均线
             "AAA Corporate Spread": (fr_df.get('BAMLC0A1CAAA'), "#FFA500", False, "%"),
             "BAA Corporate Spread": (fr_df.get('BAMLC0A4CBBB'), "#FFD700", False, "%"),
-            "10Y-2Y Spread": (fr_df.get('T10Y2Y'), "#FF4B4B", False, "%"), # 【修复】直接挂载官方息差数据
-            "10Y-3M Spread": (fr_df.get('T10Y3M'), "#DC143C", False, "%"), # 【修复】直接挂载官方息差数据
+            "10Y-2Y Spread": (fr_df.get('T10Y2Y'), "#FF4B4B", False, "%"), 
+            "10Y-3M Spread": (fr_df.get('T10Y3M'), "#DC143C", False, "%"), 
             "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False, "%"),
             "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, ""),
             "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, ""),
@@ -307,7 +307,7 @@ if db:
             "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32", True, "CNY"),
             "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True, "CNY"),
             "US Dollar Index (DXY)": (yf_df.get('DX-Y.NYB'), "#1E90FF", True, ""),
-            "USD/CNH": (yf_df.get('USDCNY=X'), "#FF4B4B", True, ""), # 【修复】切换离岸为在岸汇率抓取
+            "USD/CNH": (yf_df.get('USDCNY=X'), "#FF4B4B", True, ""), 
             "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True, ""),
             "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96", True, ""),
             "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF", True, ""),
