@@ -1,7 +1,9 @@
 streamlit
 pandas
+numpy
 plotly
 yfinance
-pandas-datareader
 akshare
 fredapi
+# 强制云端去 GitHub 拉取 tvdatafeed 源码
+git+https://github.com/rongardF/tvdatafeed.git
