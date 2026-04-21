@@ -336,7 +336,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 # 4. Bloomberg Dashboard UI (Safe Version)
 # ==========================================
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
+    # 已移除图片占位符，保持界面清爽
     st.title("Macro Terminal V3.15")
     st.markdown("---")
     
