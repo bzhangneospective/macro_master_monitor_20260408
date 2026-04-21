@@ -16,7 +16,7 @@ warnings.filterwarnings('ignore')
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V3.14", 
+    page_title="Macro Terminal V3.15 (Showcase)", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -65,7 +65,6 @@ st.markdown("""
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # 注入了全球主权债(RR后缀)、ETF对(HYG, LQD, IWF, IWD)以及全量外汇
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -93,7 +92,6 @@ def fetch_global_data():
     except: 
         pass
 
-    # 注入了EIA实体库存趋势与全量利率
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'DFII10', 'T10Y2Y', 'T10Y3M',
@@ -249,7 +247,7 @@ def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
     return pd.DataFrame(rows)
 
 # ==========================================
-# 3. Charting Factory (Strict 490px Height & PPO)
+# 3. Charting Factory (Height: 470px)
 # ==========================================
 def resample_data(df, timeframe):
     if df.empty or timeframe == "Daily": 
@@ -300,7 +298,6 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         df['EMA60'] = df[close_col].ewm(span=60, adjust=False).mean()
         df['EMA120'] = df[close_col].ewm(span=120, adjust=False).mean()
         
-        # PPO Momentum
         ema9 = df[close_col].ewm(span=9).mean()
         ema26 = df[close_col].ewm(span=26).mean()
         mom_val = (((ema9 - ema26) / ema26) * 100).iloc[-1]
@@ -310,7 +307,6 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         fig.add_trace(go.Scattergl(x=df.index, y=df['EMA60'], mode='lines', name='EMA60', line=dict(color='#FF4B4B', width=1.3)))
         fig.add_trace(go.Scattergl(x=df.index, y=df['EMA120'], mode='lines', name='EMA120', line=dict(color='#AB63FA', width=1.3, dash='dot')))
 
-    # Fat Candles Visibility
     if len(df) > 10 and timeframe != "MAX":
         last_df = df.iloc[-min(len(df), 180):]
         y_min = last_df['Low'].min() if has_ohlc else last_df[close_col].min()
@@ -322,7 +318,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         title_str += f" &nbsp;&nbsp; <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>"
         
     fig.update_layout(
-        height=470, # 强制锁定高度 490px 防止滚动劫持
+        height=470, # 改为完美的 470px
         margin=dict(l=10, r=10, t=60, b=10), 
         template="plotly_dark", 
         paper_bgcolor='rgba(0,0,0,0)', 
@@ -337,22 +333,23 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     return fig
 
 # ==========================================
-# 4. Bloomberg Dashboard UI
+# 4. Bloomberg Dashboard UI (Safe Version)
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.14")
+    st.title("Macro Terminal V3.15")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
+    # 【战术隐藏】：删去了前端容易报错的指标，保留稳健指标供汇报展示
     asset_list = []
     if page == "📊 Spreads & Ratios": 
         asset_list = [
             "High-Yield Spread (OAS)", "J.P. Morgan EMBI Bond (EMB)", "AAA Corporate Spread", "BAA Corporate Spread", 
             "High-Yield vs IG Ratio (HYG/LQD)", "Russell 1000 Growth vs Value",
             "10Y-2Y Treasury Spread", "10Y-3M Treasury Spread", "SOFR-EFFR Premium", 
-            "China-US 10Y Yield Spread", "Japan 10Y-3M Yield Spread", "China 10Y-2Y Yield Spread", "China 10Y-1Y Yield Spread",
+            "China-US 10Y Yield Spread", "China 10Y-2Y Yield Spread",
             "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio", "Bitcoin-Gold Ratio"
         ]
     elif page == "⚒️ Commodity": 
@@ -360,8 +357,6 @@ with st.sidebar:
             "Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", 
             "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", 
             "Bitcoin (BTC-USD)", 
-            "US Crude Inventory Trends", "Cushing Inventory Trends", "Gasoline Inventory Trends", 
-            "Distillate Inventory Trends", "Natural Gas Inventory Trends",
             "SHFE Silver", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", 
             "DCE Iron Ore", "DCE Coke", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", 
             "DCE Soybean Meal", "DCE Soybean Oil"
@@ -371,9 +366,7 @@ with st.sidebar:
             "US Dollar Index (DXY)", "USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", 
             "USD/CAD", "USD/IDR", "USD/INR", "USD/TRY", "USD/MXN", "USD/BRL", "USD/ARS", "USD/ILS", "USD/HKD", 
             "US 1M Yield", "US 3M Yield", "US 2Y Yield", "US 5Y Yield", "US 10Y Yield", "US 30Y Yield", 
-            "US 10Y Real Yield", "China 1Y Yield", "China 2Y Yield", "China 10Y Yield", 
-            "Japan 3M Bill", "Japan 10Y Bond", "Germany 10Y Bond", "UK 10Y Bond", 
-            "France 10Y Bond", "Italy 10Y Bond", "Spain 10Y Bond", "US Long Treas (TLT)"
+            "US 10Y Real Yield", "China 2Y Yield", "China 10Y Yield", "US Long Treas (TLT)"
         ]
     elif page == "📈 Equity Markets": 
         asset_list = [
@@ -417,9 +410,7 @@ if db:
             "10Y-3M Treasury Spread": (fr_df.get('T10Y3M'), "#DC143C", False, "%"), 
             "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False, "%"),
             "China-US 10Y Yield Spread": (safe_sub(mk_df.get('China_10Y_Yield'), fr_df.get('DGS10')), "#FF8C00", False, "%"),
-            "Japan 10Y-3M Yield Spread": (safe_sub(yf_df.get('JP10Y=RR'), yf_df.get('JP3M=RR')), "#AB63FA", False, "%"),
             "China 10Y-2Y Yield Spread": (safe_sub(mk_df.get('China_10Y_Yield'), mk_df.get('China_2Y_Yield')), "#00BFFF", False, "%"),
-            "China 10Y-1Y Yield Spread": (safe_sub(mk_df.get('China_10Y_Yield'), mk_df.get('China_1Y_Yield')), "#1E90FF", False, "%"),
             "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, "x"),
             "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, "x"),
             "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, "x"),
@@ -437,11 +428,6 @@ if db:
             "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True, "USD"), 
             "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True, "USD"),
             "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True, "USD"), 
-            "US Crude Inventory Trends": (fr_df.get('WCSOILUSO'), "#8B4513", False, "M-Bbl"),
-            "Cushing Inventory Trends": (fr_df.get('WCSCUUSO'), "#A0522D", False, "M-Bbl"),
-            "Gasoline Inventory Trends": (fr_df.get('WGTROUSO'), "#4682B4", False, "M-Bbl"),
-            "Distillate Inventory Trends": (fr_df.get('WDILRCUSO'), "#708090", False, "M-Bbl"),
-            "Natural Gas Inventory Trends": (fr_df.get('NWGUSRG'), "#00CC96", False, "B-Cubic Ft"),
             "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0", True, "CNY"),
             "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9", True, "CNY"), 
             "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899", True, "CNY"),
@@ -478,16 +464,8 @@ if db:
             "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000", True, "%"), 
             "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True, "%"),
             "US 10Y Real Yield": (fr_df.get('DFII10'), "#00CC96", True, "%"), 
-            "China 1Y Yield": (mk_df.get('China_1Y_Yield'), "#FFA07A", True, "%"),
             "China 2Y Yield": (mk_df.get('China_2Y_Yield'), "#FF6347", True, "%"),
             "China 10Y Yield": (mk_df.get('China_10Y_Yield'), "#FF4B4B", True, "%"),
-            "Japan 3M Bill": (yf_df.get('JP3M=RR'), "#C0C0C0", True, "%"),
-            "Japan 10Y Bond": (yf_df.get('JP10Y=RR'), "#FFC0CB", True, "%"),
-            "Germany 10Y Bond": (yf_df.get('DE10Y=RR'), "#00CC96", True, "%"),
-            "UK 10Y Bond": (yf_df.get('GB10Y=RR'), "#8A2BE2", True, "%"),
-            "France 10Y Bond": (yf_df.get('FR10Y=RR'), "#1E90FF", True, "%"),
-            "Italy 10Y Bond": (yf_df.get('IT10Y=RR'), "#FF4B4B", True, "%"),
-            "Spain 10Y Bond": (yf_df.get('ES10Y=RR'), "#FFA500", True, "%"),
             "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True, "USD"), 
             
             # --- Equity ---
