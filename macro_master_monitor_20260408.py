@@ -16,7 +16,7 @@ warnings.filterwarnings('ignore')
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V3.12", 
+    page_title="Macro Terminal V3.13", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -169,40 +169,58 @@ def fetch_market_heatmap_raw(market_type):
             ('Cons Disc', 'Retail (XRT)', 'XRT', 10.0),
             ('Indus', 'Aero/Def (ITA)', 'ITA', 10.0)
         ]
-    # 3. 日经 225: TOPIX 行业
+    # 3. 费城半导体: 产业链硬核拆解
+    elif market_type == "US_SOX":
+        hierarchy = [
+            ('Fabless', 'Nvidia', 'NVDA', 20.0), ('Fabless', 'AMD', 'AMD', 10.0), ('Fabless', 'Qualcomm', 'QCOM', 8.0),
+            ('Foundry', 'TSMC', 'TSM', 15.0),
+            ('Equipment', 'ASML', 'ASML', 10.0), ('Equipment', 'Applied Mat', 'AMAT', 8.0), ('Equipment', 'Lam Rsch', 'LRCX', 6.0),
+            ('IDM', 'Intel', 'INTC', 8.0), ('IDM', 'Texas Inst', 'TXN', 8.0), ('IDM', 'Micron', 'MU', 6.0),
+            ('Broad/Net', 'Broadcom', 'AVGO', 15.0)
+        ]
+    # 4. 韩国 KOSPI: 财阀基本盘拆解
+    elif market_type == "KR":
+        hierarchy = [
+            ('Tech', 'Samsung Elec', '005930.KS', 25.0), ('Tech', 'SK Hynix', '000660.KS', 15.0),
+            ('Auto', 'Hyundai Motor', '005380.KS', 8.0), ('Auto', 'Kia', '000270.KS', 5.0),
+            ('Chem/Batt', 'LG Chem', '051910.KS', 6.0), ('Chem/Batt', 'Samsung SDI', '006400.KS', 5.0),
+            ('Finance', 'KB Fin', '105560.KS', 5.0), ('Finance', 'Shinhan', '055550.KS', 4.0),
+            ('Comm', 'Naver', '035420.KS', 5.0), ('Comm', 'Kakao', '035720.KS', 4.0)
+        ]
+    # 5. 台湾加权: 半导体与代工帝国
+    elif market_type == "TW":
+        hierarchy = [
+            ('Semiconductor', 'TSMC', '2330.TW', 35.0), ('Semiconductor', 'MediaTek', '2454.TW', 10.0),
+            ('EMS/Hardware', 'Foxconn', '2317.TW', 12.0), ('EMS/Hardware', 'Quanta', '2382.TW', 8.0),
+            ('EMS/Hardware', 'Delta Elec', '2308.TW', 6.0), ('EMS/Hardware', 'ASE Tech', '3711.TW', 5.0),
+            ('Finance', 'Fubon Fin', '2881.TW', 6.0), ('Finance', 'Cathay Fin', '2882.TW', 5.0),
+            ('Finance', 'CTBC Fin', '2891.TW', 4.0)
+        ]
+    # 6. A股 (SSE): 核心蓝筹时序追踪
+    elif market_type == "CN":
+        hierarchy = [
+            ('Consumer', 'Moutai', '600519.SS', 15.0), ('Consumer', 'Wuliangye', '000858.SZ', 8.0),
+            ('Finance', 'Merchants Bank', '600036.SS', 10.0), ('Finance', 'Ping An', '601318.SS', 8.0), ('Finance', 'ICBC', '601398.SS', 8.0),
+            ('Tech/EV', 'CATL', '300750.SZ', 12.0), ('Tech/EV', 'BYD', '002594.SZ', 10.0), ('Tech/EV', 'Luxshare', '002475.SZ', 6.0),
+            ('Health/Ind', 'Mindray', '300760.SZ', 6.0), ('Health/Ind', 'Wanhua', '600309.SS', 5.0)
+        ]
+    # 7. 日经 225: TOPIX 行业
     elif market_type == "JP":
         hierarchy = [
-            ('Industry', 'IT & Services', '1627.T', 15.0), 
-            ('Industry', 'Elec. Appliances', '1625.T', 15.0),
-            ('Industry', 'Transportation', '1622.T', 12.0), 
-            ('Finance', 'Banks', '1630.T', 10.0),
-            ('Finance', 'Financials (Ex-Bank)', '1631.T', 5.0), 
-            ('Cons', 'Retail Trade', '1629.T', 8.0),
-            ('Cons', 'Food', '1617.T', 5.0), 
-            ('Industry', 'Machinery', '1624.T', 7.0),
-            ('Material', 'Steel/Nonferrous', '1623.T', 4.0), 
-            ('Material', 'Construction', '1619.T', 4.0),
-            ('Utility', 'Energy', '1618.T', 5.0), 
-            ('Utility', 'Real Estate', '1632.T', 10.0)
+            ('Industry', 'IT & Services', '1627.T', 15.0), ('Industry', 'Elec. Appliances', '1625.T', 15.0),
+            ('Industry', 'Transportation', '1622.T', 12.0), ('Finance', 'Banks', '1630.T', 10.0),
+            ('Finance', 'Financials (Ex-Bank)', '1631.T', 5.0), ('Cons', 'Retail Trade', '1629.T', 8.0),
+            ('Cons', 'Food', '1617.T', 5.0), ('Industry', 'Machinery', '1624.T', 7.0),
+            ('Material', 'Steel/Nonferrous', '1623.T', 4.0), ('Material', 'Construction', '1619.T', 4.0),
+            ('Utility', 'Energy', '1618.T', 5.0), ('Utility', 'Real Estate', '1632.T', 10.0)
         ]
-    # 4. 恒生指数: 核心行业
+    # 8. 恒生指数: 核心行业
     elif market_type == "HK":
         hierarchy = [
-            ('Tech', 'HS Tech', '3033.HK', 25.0), 
-            ('Finance', 'HS Finance', '0005.HK', 20.0),
-            ('Finance', 'HS Insurance', '1299.HK', 15.0), 
-            ('Cons', 'HS Consumer', '2318.HK', 15.0),
-            ('RE', 'HS Property', '0016.HK', 10.0), 
-            ('Comm', 'HS Telecom', '0941.HK', 15.0)
+            ('Tech', 'HS Tech', '3033.HK', 25.0), ('Finance', 'HS Finance', '0005.HK', 20.0),
+            ('Finance', 'HS Insurance', '1299.HK', 15.0), ('Cons', 'HS Consumer', '2318.HK', 15.0),
+            ('RE', 'HS Property', '0016.HK', 10.0), ('Comm', 'HS Telecom', '0941.HK', 15.0)
         ]
-    # 5. A股板块
-    elif market_type == "CN":
-        try:
-            df_cn = ak.stock_board_industry_summary_ths().head(16)
-            hierarchy = [('A-Share', row['板块'], row['板块'], 10.0) for _, row in df_cn.iterrows()]
-            return df_cn, hierarchy
-        except: 
-            return pd.DataFrame(), []
     else: 
         return pd.DataFrame(), []
 
@@ -214,34 +232,31 @@ def fetch_market_heatmap_raw(market_type):
         return pd.DataFrame(), hierarchy
 
 def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
-    if raw_data.empty: 
+    if raw_data is None or raw_data.empty: 
         return pd.DataFrame()
         
     rows = []
     cur_yr = datetime.date.today().year
     
-    if market_type != "CN":
-        for sec, sub, t, w in hierarchy:
-            if t in raw_data.columns:
-                s = raw_data[t].dropna()
-                if len(s) < 2: 
-                    continue
-                p_now = s.iloc[-1]
+    # 统一使用降采样时序算法，抛弃原有的烂尾 A股快照逻辑
+    for sec, sub, t, w in hierarchy:
+        if t in raw_data.columns:
+            s = raw_data[t].dropna()
+            if len(s) < 2: 
+                continue
+            p_now = s.iloc[-1]
+            
+            if lookback == "1D": 
+                p_old = s.iloc[-2]
+            elif lookback == "5D": 
+                p_old = s.iloc[-min(len(s), 6)]
+            elif lookback == "1M": 
+                p_old = s.iloc[-min(len(s), 22)]
+            else:
+                ytd = s[s.index.year == cur_yr]
+                p_old = ytd.iloc[0] if not ytd.empty else s.iloc[0]
                 
-                if lookback == "1D": 
-                    p_old = s.iloc[-2]
-                elif lookback == "5D": 
-                    p_old = s.iloc[-min(len(s), 6)]
-                elif lookback == "1M": 
-                    p_old = s.iloc[-min(len(s), 22)]
-                else:
-                    ytd = s[s.index.year == cur_yr]
-                    p_old = ytd.iloc[0] if not ytd.empty else s.iloc[0]
-                    
-                rows.append({'Sector': sec, 'Sub': sub, 'Perf': ((p_now - p_old) / p_old) * 100, 'Weight': w})
-    else:
-        for _, row in raw_data.iterrows():
-            rows.append({'Sector': 'A-Share', 'Sub': row['板块'], 'Perf': float(row['涨跌幅']), 'Weight': 10.0})
+            rows.append({'Sector': sec, 'Sub': sub, 'Perf': ((p_now - p_old) / p_old) * 100, 'Weight': w})
             
     return pd.DataFrame(rows)
 
@@ -341,7 +356,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Python-logo-notext.svg/1200px-Python-logo-notext.svg.png", width=40)
-    st.title("Macro Terminal V3.12")
+    st.title("Macro Terminal V3.13")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
@@ -473,15 +488,21 @@ if db:
             st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit), use_container_width=True, config=plot_config)
             
         with tab2:
-            # 差异化市场类型匹配
+            # 差异化市场类型精准匹配路由
             if "^GSPC" in selected_asset: 
                 m_type = "US_SP500"
             elif "^NDX" in selected_asset: 
                 m_type = "US_NAS100"
+            elif "^SOX" in selected_asset: 
+                m_type = "US_SOX"
             elif "^HSI" in selected_asset: 
                 m_type = "HK"
             elif "^N225" in selected_asset: 
                 m_type = "JP"
+            elif "^KS11" in selected_asset: 
+                m_type = "KR"
+            elif "^TWII" in selected_asset: 
+                m_type = "TW"
             elif "SSE" in selected_asset: 
                 m_type = "CN"
             else: 
