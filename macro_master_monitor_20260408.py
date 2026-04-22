@@ -17,7 +17,7 @@ warnings.filterwarnings('ignore')
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V3.16 (Ultimate)", 
+    page_title="Macro Terminal V3.18 (Full Transparency)", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -35,13 +35,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. Institutional Data Engine
+# 2. Institutional Data Engine (多重防线机制)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # 1. YFinance 数据源 (引入带 T 的主权债修复代码，及中国债 YF 备用线)
+    # 1. YFinance 数据源 (含欧洲主权债与中国债备用T代码)
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -61,12 +61,11 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 2. FRED 数据源 (引入 AAA/BAA 绝对收益率及 EIA 能源库存)
+    # 2. FRED 数据源
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'DFII10', 'T10Y2Y', 'T10Y3M',
-        'BAMLC0A1CAAAEY', 'BAMLC0A4CBBBEY', 
-        'WCSOILUSO', 'WCSCUUSO', 'WGTROUSO', 'WDILRCUSO', 'NWGUSRG'
+        'BAMLC0A1CAAAEY', 'BAMLC0A4CBBBEY', 'WCSOILUSO', 'WCSCUUSO', 'WGTROUSO', 'WDILRCUSO', 'NWGUSRG'
     ]
     fred_data = {}
     try:
@@ -78,7 +77,7 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 3. AkShare 数据源 (引入 ZCE_Cotton 郑州棉花)
+    # 3. AkShare 数据源 (商品期货)
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
         'SHFE_Zinc': 'zn0', 'SHFE_Nickel': 'ni0', 'SHFE_Rebar': 'rb0',
@@ -94,14 +93,32 @@ def fetch_global_data():
                 df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'})
                 cn_data[name] = df[['Open', 'High', 'Low', 'Close']].apply(pd.to_numeric, errors='coerce').dropna(how='all').ffill().dropna()
         except: pass
+        
+    # 4. 中国国债双重防线
+    china_bond_success = False
     try:
-        bond_df = ak.bond_zh_us_rate()
-        if not bond_df.empty:
-            bond_df['日期'] = pd.to_datetime(bond_df['日期']); bond_df.set_index('日期', inplace=True)
-            cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
-            cn_data['China_2Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率2年'], errors='coerce')}).dropna()
-            cn_data['China_1Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率1年'], errors='coerce')}).dropna()
+        # 防线一：直连中债登 (易被云端拦截)
+        end_date_str = datetime.date.today().strftime("%Y%m%d")
+        bond_china_df = ak.bond_china_yield(start_date="20180101", end_date=end_date_str)
+        if not bond_china_df.empty:
+            bond_china_df = bond_china_df[bond_china_df['曲线名称'] == '中债国债收益率曲线']
+            bond_china_df['日期'] = pd.to_datetime(bond_china_df['日期']); bond_china_df.set_index('日期', inplace=True)
+            cn_data['China_3M_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_china_df['3月'], errors='coerce')}).dropna()
+            cn_data['China_1Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_china_df['1年'], errors='coerce')}).dropna()
+            cn_data['China_2Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_china_df['2年'], errors='coerce')}).dropna()
+            cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_china_df['10年'], errors='coerce')}).dropna()
+            china_bond_success = True
     except: pass
+    
+    if not china_bond_success:
+        try:
+            # 防线二：新浪保底 (仅有 2Y, 10Y)
+            bond_df = ak.bond_zh_us_rate()
+            if not bond_df.empty:
+                bond_df['日期'] = pd.to_datetime(bond_df['日期']); bond_df.set_index('日期', inplace=True)
+                cn_data['China_10Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率10年'], errors='coerce')}).dropna()
+                cn_data['China_2Y_Yield'] = pd.DataFrame({'Close': pd.to_numeric(bond_df['中国国债收益率2年'], errors='coerce')}).dropna()
+        except: pass
 
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data}
 
@@ -110,24 +127,19 @@ def fetch_global_data():
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_market_heatmap_raw(market_type):
-    if market_type == "US_SP500":
-        hierarchy = [('Tech', 'Info Tech (XLK)', 'XLK', 28.0), ('Fin', 'Financials (XLF)', 'XLF', 13.0), ('Health', 'Health Care (XLV)', 'XLV', 12.0), ('Cons Disc', 'Cons. Disc (XLY)', 'XLY', 10.0), ('Comm', 'Comm Svcs (XLC)', 'XLC', 8.0), ('Indus', 'Industrials (XLI)', 'XLI', 8.0), ('Cons Stap', 'Cons. Staples (XLP)', 'XLP', 6.0), ('Energy', 'Energy (XLE)', 'XLE', 4.0), ('Util', 'Utilities (XLU)', 'XLU', 2.5), ('Mat', 'Materials (XLB)', 'XLB', 2.5), ('RE', 'Real Estate (XLRE)', 'XLRE', 2.5)]
-    elif market_type == "US_NAS100":
-        hierarchy = [('Tech', 'Semiconductors (SOXX)', 'SOXX', 25.0), ('Tech', 'Software (IGV)', 'IGV', 20.0), ('Tech', 'Internet (FDN)', 'FDN', 15.0), ('Health', 'Biotech (IBB)', 'IBB', 10.0), ('Comm', 'Comm Svcs (IYZ)', 'IYZ', 10.0), ('Cons Disc', 'Retail (XRT)', 'XRT', 10.0), ('Indus', 'Aero/Def (ITA)', 'ITA', 10.0)]
-    elif market_type == "US_SOX":
-        hierarchy = [('Fabless', 'Nvidia', 'NVDA', 20.0), ('Fabless', 'AMD', 'AMD', 10.0), ('Fabless', 'Qualcomm', 'QCOM', 8.0), ('Foundry', 'TSMC', 'TSM', 15.0), ('Equipment', 'ASML', 'ASML', 10.0), ('Equipment', 'Applied Mat', 'AMAT', 8.0), ('Equipment', 'Lam Rsch', 'LRCX', 6.0), ('IDM', 'Intel', 'INTC', 8.0), ('IDM', 'Texas Inst', 'TXN', 8.0), ('IDM', 'Micron', 'MU', 6.0), ('Broad/Net', 'Broadcom', 'AVGO', 15.0)]
-    elif market_type == "KR":
-        hierarchy = [('Tech', 'Samsung Elec', '005930.KS', 25.0), ('Tech', 'SK Hynix', '000660.KS', 15.0), ('Auto', 'Hyundai Motor', '005380.KS', 8.0), ('Auto', 'Kia', '000270.KS', 5.0), ('Chem/Batt', 'LG Chem', '051910.KS', 6.0), ('Chem/Batt', 'Samsung SDI', '006400.KS', 5.0), ('Finance', 'KB Fin', '105560.KS', 5.0), ('Finance', 'Shinhan', '055550.KS', 4.0), ('Comm', 'Naver', '035420.KS', 5.0), ('Comm', 'Kakao', '035720.KS', 4.0)]
-    elif market_type == "TW":
-        hierarchy = [('Semiconductor', 'TSMC', '2330.TW', 35.0), ('Semiconductor', 'MediaTek', '2454.TW', 10.0), ('EMS/Hardware', 'Foxconn', '2317.TW', 12.0), ('EMS/Hardware', 'Quanta', '2382.TW', 8.0), ('EMS/Hardware', 'Delta Elec', '2308.TW', 6.0), ('EMS/Hardware', 'ASE Tech', '3711.TW', 5.0), ('Finance', 'Fubon Fin', '2881.TW', 6.0), ('Finance', 'Cathay Fin', '2882.TW', 5.0), ('Finance', 'CTBC Fin', '2891.TW', 4.0)]
-    elif market_type == "CN":
-        hierarchy = [('Consumer', 'Moutai', '600519.SS', 15.0), ('Consumer', 'Wuliangye', '000858.SZ', 8.0), ('Finance', 'Merchants Bank', '600036.SS', 10.0), ('Finance', 'Ping An', '601318.SS', 8.0), ('Finance', 'ICBC', '601398.SS', 8.0), ('Tech/EV', 'CATL', '300750.SZ', 12.0), ('Tech/EV', 'BYD', '002594.SZ', 10.0), ('Tech/EV', 'Luxshare', '002475.SZ', 6.0), ('Health/Ind', 'Mindray', '300760.SZ', 6.0), ('Health/Ind', 'Wanhua', '600309.SS', 5.0)]
-    elif market_type == "JP":
-        hierarchy = [('Industry', 'IT & Services', '1627.T', 15.0), ('Industry', 'Elec. Appliances', '1625.T', 15.0), ('Industry', 'Transportation', '1622.T', 12.0), ('Finance', 'Banks', '1630.T', 10.0), ('Finance', 'Financials (Ex-Bank)', '1631.T', 5.0), ('Cons', 'Retail Trade', '1629.T', 8.0), ('Cons', 'Food', '1617.T', 5.0), ('Industry', 'Machinery', '1624.T', 7.0), ('Material', 'Steel/Nonferrous', '1623.T', 4.0), ('Material', 'Construction', '1619.T', 4.0), ('Utility', 'Energy', '1618.T', 5.0), ('Utility', 'Real Estate', '1632.T', 10.0)]
-    elif market_type == "HK":
-        hierarchy = [('Tech', 'HS Tech', '3033.HK', 25.0), ('Finance', 'HS Finance', '0005.HK', 20.0), ('Finance', 'HS Insurance', '1299.HK', 15.0), ('Cons', 'HS Consumer', '2318.HK', 15.0), ('RE', 'HS Property', '0016.HK', 10.0), ('Comm', 'HS Telecom', '0941.HK', 15.0)]
-    else: return pd.DataFrame(), []
-
+    hierarchy_map = {
+        "US_SP500": [('Tech', 'Info Tech (XLK)', 'XLK', 28.0), ('Fin', 'Financials (XLF)', 'XLF', 13.0), ('Health', 'Health Care (XLV)', 'XLV', 12.0), ('Cons Disc', 'Cons. Disc (XLY)', 'XLY', 10.0), ('Comm', 'Comm Svcs (XLC)', 'XLC', 8.0), ('Indus', 'Industrials (XLI)', 'XLI', 8.0), ('Cons Stap', 'Cons. Staples (XLP)', 'XLP', 6.0), ('Energy', 'Energy (XLE)', 'XLE', 4.0), ('Util', 'Utilities (XLU)', 'XLU', 2.5), ('Mat', 'Materials (XLB)', 'XLB', 2.5), ('RE', 'Real Estate (XLRE)', 'XLRE', 2.5)],
+        "US_NAS100": [('Tech', 'Semiconductors (SOXX)', 'SOXX', 25.0), ('Tech', 'Software (IGV)', 'IGV', 20.0), ('Tech', 'Internet (FDN)', 'FDN', 15.0), ('Health', 'Biotech (IBB)', 'IBB', 10.0), ('Comm', 'Comm Svcs (IYZ)', 'IYZ', 10.0), ('Cons Disc', 'Retail (XRT)', 'XRT', 10.0), ('Indus', 'Aero/Def (ITA)', 'ITA', 10.0)],
+        "US_SOX": [('Fabless', 'Nvidia', 'NVDA', 20.0), ('Fabless', 'AMD', 'AMD', 10.0), ('Fabless', 'Qualcomm', 'QCOM', 8.0), ('Foundry', 'TSMC', 'TSM', 15.0), ('Equipment', 'ASML', 'ASML', 10.0), ('Equipment', 'Applied Mat', 'AMAT', 8.0), ('Equipment', 'Lam Rsch', 'LRCX', 6.0), ('IDM', 'Intel', 'INTC', 8.0), ('IDM', 'Texas Inst', 'TXN', 8.0), ('IDM', 'Micron', 'MU', 6.0), ('Broad/Net', 'Broadcom', 'AVGO', 15.0)],
+        "KR": [('Tech', 'Samsung Elec', '005930.KS', 25.0), ('Tech', 'SK Hynix', '000660.KS', 15.0), ('Auto', 'Hyundai Motor', '005380.KS', 8.0), ('Auto', 'Kia', '000270.KS', 5.0), ('Chem/Batt', 'LG Chem', '051910.KS', 6.0), ('Chem/Batt', 'Samsung SDI', '006400.KS', 5.0), ('Finance', 'KB Fin', '105560.KS', 5.0), ('Finance', 'Shinhan', '055550.KS', 4.0), ('Comm', 'Naver', '035420.KS', 5.0), ('Comm', 'Kakao', '035720.KS', 4.0)],
+        "TW": [('Semiconductor', 'TSMC', '2330.TW', 35.0), ('Semiconductor', 'MediaTek', '2454.TW', 10.0), ('EMS/Hardware', 'Foxconn', '2317.TW', 12.0), ('EMS/Hardware', 'Quanta', '2382.TW', 8.0), ('EMS/Hardware', 'Delta Elec', '2308.TW', 6.0), ('EMS/Hardware', 'ASE Tech', '3711.TW', 5.0), ('Finance', 'Fubon Fin', '2881.TW', 6.0), ('Finance', 'Cathay Fin', '2882.TW', 5.0), ('Finance', 'CTBC Fin', '2891.TW', 4.0)],
+        "CN": [('Consumer', 'Moutai', '600519.SS', 15.0), ('Consumer', 'Wuliangye', '000858.SZ', 8.0), ('Finance', 'Merchants Bank', '600036.SS', 10.0), ('Finance', 'Ping An', '601318.SS', 8.0), ('Finance', 'ICBC', '601398.SS', 8.0), ('Tech/EV', 'CATL', '300750.SZ', 12.0), ('Tech/EV', 'BYD', '002594.SZ', 10.0), ('Tech/EV', 'Luxshare', '002475.SZ', 6.0), ('Health/Ind', 'Mindray', '300760.SZ', 6.0), ('Health/Ind', 'Wanhua', '600309.SS', 5.0)],
+        "JP": [('Industry', 'IT & Services', '1627.T', 15.0), ('Industry', 'Elec. Appliances', '1625.T', 15.0), ('Industry', 'Transportation', '1622.T', 12.0), ('Finance', 'Banks', '1630.T', 10.0), ('Finance', 'Financials (Ex-Bank)', '1631.T', 5.0), ('Cons', 'Retail Trade', '1629.T', 8.0), ('Cons', 'Food', '1617.T', 5.0), ('Industry', 'Machinery', '1624.T', 7.0), ('Material', 'Steel/Nonferrous', '1623.T', 4.0), ('Material', 'Construction', '1619.T', 4.0), ('Utility', 'Energy', '1618.T', 5.0), ('Utility', 'Real Estate', '1632.T', 10.0)],
+        "HK": [('Tech', 'HS Tech', '3033.HK', 25.0), ('Finance', 'HS Finance', '0005.HK', 20.0), ('Finance', 'HS Insurance', '1299.HK', 15.0), ('Cons', 'HS Consumer', '2318.HK', 15.0), ('RE', 'HS Property', '0016.HK', 10.0), ('Comm', 'HS Telecom', '0941.HK', 15.0)]
+    }
+    hierarchy = hierarchy_map.get(market_type, [])
+    if not hierarchy: return pd.DataFrame(), []
+    
     tickers = [item[2] for item in hierarchy]
     try: return yf.download(tickers, period="1y", progress=False)['Close'], hierarchy
     except: return pd.DataFrame(), hierarchy
@@ -150,7 +162,7 @@ def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
     return pd.DataFrame(rows)
 
 # ==========================================
-# 3. Charting Factory (支持附图双轴联动)
+# 3. Charting Factory (支持附图双轴)
 # ==========================================
 def resample_data(df, timeframe):
     if df.empty or timeframe == "Daily": return df
@@ -207,7 +219,6 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         inv_weekly['Diff'] = inv_weekly['Close'].diff()
         
         bar_colors = ['#FF4B4B' if val > 0 else '#00CC96' for val in inv_weekly['Diff']]
-        
         fig.add_trace(go.Bar(x=inv_weekly.index, y=inv_weekly['Diff'], marker_color=bar_colors, name=inv_name, showlegend=False), row=2, col=1)
         fig.update_yaxes(title_text="WoW Change", title_font=dict(size=10, color="gray"), tickfont=dict(size=10), row=2, col=1, showgrid=True, gridcolor='rgba(128,128,128,0.1)')
 
@@ -240,22 +251,23 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     return fig
 
 # ==========================================
-# 4. Bloomberg Dashboard UI
+# 4. Bloomberg Dashboard UI (全资产展示版)
 # ==========================================
 with st.sidebar:
-    st.title("Macro Terminal V3.16")
+    st.title("Macro Terminal V3.18")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
     if page == "📊 Spreads & Ratios": 
+        # 完整保留所有利差，不惧报错
         asset_list = [
             "High-Yield Spread (OAS)", "J.P. Morgan EMBI Bond (EMB)", 
             "AAA Corporate Spread (OAS)", "BAA Corporate Spread (OAS)", 
             "AAA vs 10Y Treasury Spread", "BAA vs 10Y Treasury Spread", 
             "High-Yield vs IG Ratio (HYG/LQD)", "Russell 1000 Growth vs Value",
             "10Y-2Y Treasury Spread", "10Y-3M Treasury Spread", "SOFR-EFFR Premium", 
-            "China-US 10Y Yield Spread", "China 10Y-2Y Yield Spread", "China 10Y-1Y Yield Spread",
+            "China-US 10Y Yield Spread", "China 10Y-3M Yield Spread", "China 10Y-2Y Yield Spread", "China 10Y-1Y Yield Spread",
             "Gold-Silver Ratio", "Gold-WTI Ratio", "Gold-Copper Ratio", "Bitcoin-Gold Ratio"
         ]
     elif page == "⚒️ Commodity": 
@@ -268,12 +280,13 @@ with st.sidebar:
             "DCE Soybean Meal", "DCE Soybean Oil"
         ]
     elif page == "💱 FX & FI": 
+        # 完整保留所有主权债，让使用者明确知道哪些数据在云端断供
         asset_list = [
             "US Dollar Index (DXY)", "USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", 
             "USD/CAD", "USD/IDR", "USD/INR", "USD/TRY", "USD/MXN", "USD/BRL", "USD/ARS", "USD/ILS", "USD/HKD", 
             "US 1M Yield", "US 3M Yield", "US 2Y Yield", "US 5Y Yield", "US 10Y Yield", "US 30Y Yield", 
             "US 10Y Real Yield", "US Long Treas (TLT)",
-            "China 1Y Yield", "China 2Y Yield", "China 10Y Yield", 
+            "China 3M Yield", "China 1Y Yield", "China 2Y Yield", "China 10Y Yield", 
             "Germany 10Y Bond", "UK 10Y Bond", "France 10Y Bond", "Italy 10Y Bond", "Spain 10Y Bond", "Japan 10Y Bond"
         ]
     elif page == "📈 Equity Markets": 
@@ -297,13 +310,21 @@ with st.sidebar:
 if db:
     yf_df, fr_df, mk_df = db['yf'], db['fred'], db['mock']
     
-    def safe_sub(df1, df2): 
-        return pd.DataFrame({'Close': df1['Close'] - df2['Close']}).dropna() if df1 is not None and df2 is not None else None
-        
-    def safe_div(df1, df2): 
-        return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna() if df1 is not None and df2 is not None else None
+    def safe_sub(df1, df2): return pd.DataFrame({'Close': df1['Close'] - df2['Close']}).dropna() if df1 is not None and df2 is not None else None
+    def safe_div(df1, df2): return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna() if df1 is not None and df2 is not None else None
+
+    # 防线三辅助获取函数：AkShare若空，则YF兜底
+    def get_cn_bond(mk_key, yf_key):
+        df = mk_df.get(mk_key)
+        return df if df is not None and not df.empty else yf_df.get(yf_key)
 
     def get_data(asset_name):
+        # 预抓取中国各期限主权债保障，方便组合计算
+        cn_3m = mk_df.get('China_3M_Yield')
+        cn_1y = get_cn_bond('China_1Y_Yield', 'CN1YT=RR')
+        cn_2y = get_cn_bond('China_2Y_Yield', 'CN2YT=RR')
+        cn_10y = get_cn_bond('China_10Y_Yield', 'CN10YT=RR')
+        
         mapping = {
             "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False, "%"),
             "J.P. Morgan EMBI Bond (EMB)": (yf_df.get('EMB'), "#DC143C", True, "USD"),
@@ -316,9 +337,12 @@ if db:
             "10Y-2Y Treasury Spread": (fr_df.get('T10Y2Y'), "#FF4B4B", False, "%"), 
             "10Y-3M Treasury Spread": (fr_df.get('T10Y3M'), "#DC143C", False, "%"), 
             "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False, "%"),
-            "China-US 10Y Yield Spread": (safe_sub(yf_df.get('CN10YT=RR') if yf_df.get('CN10YT=RR') is not None else mk_df.get('China_10Y_Yield'), fr_df.get('DGS10')), "#FF8C00", False, "%"),
-            "China 10Y-2Y Yield Spread": (safe_sub(yf_df.get('CN10YT=RR') if yf_df.get('CN10YT=RR') is not None else mk_df.get('China_10Y_Yield'), yf_df.get('CN2YT=RR') if yf_df.get('CN2YT=RR') is not None else mk_df.get('China_2Y_Yield')), "#00BFFF", False, "%"),
-            "China 10Y-1Y Yield Spread": (safe_sub(yf_df.get('CN10YT=RR') if yf_df.get('CN10YT=RR') is not None else mk_df.get('China_10Y_Yield'), yf_df.get('CN1YT=RR') if yf_df.get('CN1YT=RR') is not None else mk_df.get('China_1Y_Yield')), "#1E90FF", False, "%"),
+            
+            "China-US 10Y Yield Spread": (safe_sub(cn_10y, fr_df.get('DGS10')), "#FF8C00", False, "%"),
+            "China 10Y-3M Yield Spread": (safe_sub(cn_10y, cn_3m), "#DC143C", False, "%"),
+            "China 10Y-2Y Yield Spread": (safe_sub(cn_10y, cn_2y), "#00BFFF", False, "%"),
+            "China 10Y-1Y Yield Spread": (safe_sub(cn_10y, cn_1y), "#1E90FF", False, "%"),
+            
             "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, "x"),
             "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, "x"),
             "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, "x"),
@@ -329,15 +353,15 @@ if db:
             
             "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True, "USD"), "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True, "USD"), "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True, "USD"),
             "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D", True, "USD"), "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700", True, "USD"), "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32", True, "USD"), "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True, "USD"), "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True, "USD"), "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True, "USD"),
+            
             "SHFE Gold": (mk_df.get('SHFE_Gold'), "#FFD700", True, "CNY"), "SHFE Copper": (mk_df.get('SHFE_Copper'), "#B87333", True, "CNY"), "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0", True, "CNY"), "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9", True, "CNY"), "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899", True, "CNY"), "SHFE Nickel": (mk_df.get('SHFE_Nickel'), "#708090", True, "CNY"), "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969", True, "CNY"),
             "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513", True, "CNY"), "DCE Coke": (mk_df.get('DCE_Coke'), "#2F4F4F", True, "CNY"), "ZCE Cotton": (mk_df.get('ZCE_Cotton'), "#FFFFFF", True, "CNY"), "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B", True, "CNY"), "ZCE Methanol": (mk_df.get('ZCE_Methanol'), "#4B0082", True, "CNY"), "ZCE Sugar": (mk_df.get('ZCE_Sugar'), "#F8F8FF", True, "CNY"), "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32", True, "CNY"), "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True, "CNY"),
             
             "US Dollar Index (DXY)": (yf_df.get('DX-Y.NYB'), "#1E90FF", True, ""), "USD/CNH": (yf_df.get('USDCNY=X'), "#FF4B4B", True, ""), "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True, ""), "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96", True, ""), "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF", True, ""), "GBP/USD": (yf_df.get('GBPUSD=X'), "#8A2BE2", True, ""), "USD/CAD": (yf_df.get('CAD=X'), "#DC143C", True, ""), "USD/IDR": (yf_df.get('IDR=X'), "#32CD32", True, ""), "USD/INR": (yf_df.get('INR=X'), "#00BFFF", True, ""), "USD/TRY": (yf_df.get('TRY=X'), "#FF4B4B", True, ""), "USD/MXN": (yf_df.get('MXN=X'), "#DC143C", True, ""), "USD/BRL": (yf_df.get('BRL=X'), "#32CD32", True, ""), "USD/ARS": (yf_df.get('ARS=X'), "#8A2BE2", True, ""), "USD/ILS": (yf_df.get('ILS=X'), "#00BFFF", True, ""), "USD/HKD": (yf_df.get('HKD=X'), "#FFD700", True, ""),
+            
             "US 1M Yield": (fr_df.get('DGS1MO'), "#A9A9A9", True, "%"), "US 3M Yield": (fr_df.get('DGS3MO'), "#808080", True, "%"), "US 2Y Yield": (fr_df.get('DGS2'), "#696969", True, "%"), "US 5Y Yield": (fr_df.get('DGS5'), "#696969", True, "%"), "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000", True, "%"), "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True, "%"), "US 10Y Real Yield": (fr_df.get('DFII10'), "#00CC96", True, "%"), "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True, "USD"),
             
-            "China 1Y Yield": (yf_df.get('CN1YT=RR') if yf_df.get('CN1YT=RR') is not None else mk_df.get('China_1Y_Yield'), "#FFD700", True, "%"), 
-            "China 2Y Yield": (yf_df.get('CN2YT=RR') if yf_df.get('CN2YT=RR') is not None else mk_df.get('China_2Y_Yield'), "#FF6347", True, "%"), 
-            "China 10Y Yield": (yf_df.get('CN10YT=RR') if yf_df.get('CN10YT=RR') is not None else mk_df.get('China_10Y_Yield'), "#FF4B4B", True, "%"),
+            "China 3M Yield": (cn_3m, "#808080", True, "%"), "China 1Y Yield": (cn_1y, "#FFD700", True, "%"), "China 2Y Yield": (cn_2y, "#FF6347", True, "%"), "China 10Y Yield": (cn_10y, "#FF4B4B", True, "%"),
             
             "Germany 10Y Bond": (yf_df.get('DE10YT=RR'), "#00CC96", True, "%"), "UK 10Y Bond": (yf_df.get('GB10YT=RR'), "#8A2BE2", True, "%"), "France 10Y Bond": (yf_df.get('FR10YT=RR'), "#1E90FF", True, "%"), "Italy 10Y Bond": (yf_df.get('IT10YT=RR'), "#FF4B4B", True, "%"), "Spain 10Y Bond": (yf_df.get('ES10YT=RR'), "#FFA500", True, "%"), "Japan 10Y Bond": (yf_df.get('JP10YT=RR'), "#FFC0CB", True, "%"),
             
@@ -345,6 +369,7 @@ if db:
         }
         res = mapping.get(asset_name)
         if res: 
+            # 确保即使没有库存数据也按格式解包
             return res if len(res) == 6 else (res[0], res[1], res[2], res[3], None, "")
             
         tk = asset_name.split('(')[-1].strip(')') if '(' in asset_name else asset_name
