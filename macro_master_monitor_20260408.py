@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V3.19 (EIA Power)", 
+    page_title="Macro Terminal V3.19 (Sync Fix & EIA)", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -62,7 +62,7 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 2. FRED 数据源 (剔除了废弃的能源库存代码)
+    # 2. FRED 数据源 (利差、基准及企业债收益率)
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'DFII10', 'T10Y2Y', 'T10Y3M',
@@ -126,9 +126,7 @@ def fetch_global_data():
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_eia_inventory():
-    # 使用你的专属 API Key
     EIA_KEY = 'dqVOONmTLi2944agrs9SxOGvYeNZQdjrxJDLNyE3'
-    # 官方 Series ID: PET.WCESTUS1.W (美国原油商业库存), NG.NW2_EPG0_SWO_R48_BCF.W (全美天然气储量)
     series_map = {
         'Crude_Inv': 'PET.WCESTUS1.W',
         'NatGas_Inv': 'NG.NW2_EPG0_SWO_R48_BCF.W'
@@ -136,7 +134,6 @@ def fetch_eia_inventory():
     inv_data = {}
     for name, sid in series_map.items():
         try:
-            # 采用 EIA V2 的向下兼容接口
             url = f"https://api.eia.gov/v2/seriesid/{sid}?api_key={EIA_KEY}"
             res = requests.get(url, timeout=10).json()
             data = res.get('response', {}).get('data', [])
@@ -145,7 +142,6 @@ def fetch_eia_inventory():
                 df['period'] = pd.to_datetime(df['period'])
                 df.set_index('period', inplace=True)
                 df.sort_index(inplace=True)
-                # 统一转为 'Close' 列，适配底层画图框架
                 inv_data[name] = pd.DataFrame({'Close': pd.to_numeric(df['value'], errors='coerce')}).dropna()
         except:
             pass
@@ -191,7 +187,7 @@ def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
     return pd.DataFrame(rows)
 
 # ==========================================
-# 3. Charting Factory (支持附图双轴)
+# 3. Charting Factory (彻底修复时区不同步问题)
 # ==========================================
 def resample_data(df, timeframe):
     if df.empty or timeframe == "Daily": return df
@@ -204,12 +200,16 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     if df_raw is None or df_raw.empty: return go.Figure()
         
     df = resample_data(df_raw.copy(), timeframe)
+    
+    # 【修复 1】：强制剥离主图时间轴的时区
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+        
     if timeframe == "Daily" and len(df) > 1500: df = df.iloc[-1500:]
         
     has_ohlc = all(c in df.columns for c in ['Open', 'High', 'Low', 'Close']) and timeframe != "MAX"
     close_col = 'Close' if 'Close' in df.columns else df.columns[0]
     
-    # 检测是否挂载了库存副图数据
     has_inv = inv_df is not None and not inv_df.empty
     
     if has_inv:
@@ -244,7 +244,11 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     # 渲染库存柱状图
     if has_inv:
         inv_clean = inv_df.copy().dropna()
-        # 强制周频采样计算差值
+        
+        # 【修复 2】：强制剥离副图时间轴的时区，绝对对齐
+        if inv_clean.index.tz is not None:
+            inv_clean.index = inv_clean.index.tz_localize(None)
+            
         inv_weekly = inv_clean.resample('W').last().dropna()
         inv_weekly['Diff'] = inv_weekly['Close'].diff()
         
@@ -259,7 +263,8 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         y_max = last_df['High'].max() if has_ohlc else last_df[close_col].max()
         
         if has_inv:
-            fig.update_xaxes(range=[last_df.index[0], last_df.index[-1]], row=1, col=1)
+            # 【修复 3】：去除子图限制，全局绑定共享 X 轴的锚点缩放
+            fig.update_xaxes(range=[last_df.index[0], last_df.index[-1]])
             fig.update_yaxes(range=[y_min*0.95, y_max*1.05], row=1, col=1)
         else:
             fig.update_layout(xaxis_range=[last_df.index[0], last_df.index[-1]], yaxis_range=[y_min*0.95, y_max*1.05])
@@ -281,7 +286,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     return fig
 
 # ==========================================
-# 4. Bloomberg Dashboard UI (全量透明版)
+# 4. Bloomberg Dashboard UI (全量资产展示版)
 # ==========================================
 with st.sidebar:
     st.title("Macro Terminal V3.19")
@@ -375,7 +380,6 @@ if db:
             "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, "x"),
             "Bitcoin-Gold Ratio": (safe_div(yf_df.get('BTC-USD'), yf_df.get('GC=F')), "#FFD700", False, "x"),
             
-            # 【这里挂载了最新的 EIA 库存数据】
             "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513", True, "USD", eia_db.get('Crude_Inv'), "EIA Crude Inv"),
             "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4", True, "USD", eia_db.get('NatGas_Inv'), "EIA NatGas Inv"),
             
@@ -396,7 +400,9 @@ if db:
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True, "USD"), "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True, "USD"), "Volatility Index (VIX)": (yf_df.get('^VIX'), "#FF4B4B", True, ""), "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B", True, "JPY"), "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF", True, "HKD"), "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00", True, "CNY"), "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500", True, "KRW"), "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32", True, "TWD"), "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA", True, "USD")
         }
         res = mapping.get(asset_name)
-        if res: return res if len(res) == 6 else (res[0], res[1], res[2], res[3], None, "")
+        if res: 
+            return res if len(res) == 6 else (res[0], res[1], res[2], res[3], None, "")
+            
         tk = asset_name.split('(')[-1].strip(')') if '(' in asset_name else asset_name
         d = yf_df.get(tk)
         if d is None or d.empty: d = mk_df.get(asset_name.replace(' ', '_'))
