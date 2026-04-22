@@ -8,6 +8,7 @@ import yfinance as yf
 import datetime
 import akshare as ak
 from fredapi import Fred
+import requests
 import warnings
 
 # 忽略 Pandas 降采样的 Future Warning
@@ -17,7 +18,7 @@ warnings.filterwarnings('ignore')
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V3.18 (Full Transparency)", 
+    page_title="Macro Terminal V3.19 (EIA Power)", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -35,7 +36,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. Institutional Data Engine (多重防线机制)
+# 2. Institutional Data Engine (多核驱动)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_global_data():
@@ -61,11 +62,11 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 2. FRED 数据源
+    # 2. FRED 数据源 (剔除了废弃的能源库存代码)
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'DFII10', 'T10Y2Y', 'T10Y3M',
-        'BAMLC0A1CAAAEY', 'BAMLC0A4CBBBEY', 'WCSOILUSO', 'WCSCUUSO', 'WGTROUSO', 'WDILRCUSO', 'NWGUSRG'
+        'BAMLC0A1CAAAEY', 'BAMLC0A4CBBBEY'
     ]
     fred_data = {}
     try:
@@ -77,7 +78,7 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 3. AkShare 数据源 (商品期货)
+    # 3. AkShare 数据源 (国内商品期货)
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
         'SHFE_Zinc': 'zn0', 'SHFE_Nickel': 'ni0', 'SHFE_Rebar': 'rb0',
@@ -97,7 +98,6 @@ def fetch_global_data():
     # 4. 中国国债双重防线
     china_bond_success = False
     try:
-        # 防线一：直连中债登 (易被云端拦截)
         end_date_str = datetime.date.today().strftime("%Y%m%d")
         bond_china_df = ak.bond_china_yield(start_date="20180101", end_date=end_date_str)
         if not bond_china_df.empty:
@@ -112,7 +112,6 @@ def fetch_global_data():
     
     if not china_bond_success:
         try:
-            # 防线二：新浪保底 (仅有 2Y, 10Y)
             bond_df = ak.bond_zh_us_rate()
             if not bond_df.empty:
                 bond_df['日期'] = pd.to_datetime(bond_df['日期']); bond_df.set_index('日期', inplace=True)
@@ -121,6 +120,36 @@ def fetch_global_data():
         except: pass
 
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data}
+
+# ==========================================
+# 2.0 专属官方 EIA 能源局数据引擎
+# ==========================================
+@st.cache_data(ttl=3600 * 12, show_spinner=False)
+def fetch_eia_inventory():
+    # 使用你的专属 API Key
+    EIA_KEY = 'dqVOONmTLi2944agrs9SxOGvYeNZQdjrxJDLNyE3'
+    # 官方 Series ID: PET.WCESTUS1.W (美国原油商业库存), NG.NW2_EPG0_SWO_R48_BCF.W (全美天然气储量)
+    series_map = {
+        'Crude_Inv': 'PET.WCESTUS1.W',
+        'NatGas_Inv': 'NG.NW2_EPG0_SWO_R48_BCF.W'
+    }
+    inv_data = {}
+    for name, sid in series_map.items():
+        try:
+            # 采用 EIA V2 的向下兼容接口
+            url = f"https://api.eia.gov/v2/seriesid/{sid}?api_key={EIA_KEY}"
+            res = requests.get(url, timeout=10).json()
+            data = res.get('response', {}).get('data', [])
+            if data:
+                df = pd.DataFrame(data)
+                df['period'] = pd.to_datetime(df['period'])
+                df.set_index('period', inplace=True)
+                df.sort_index(inplace=True)
+                # 统一转为 'Close' 列，适配底层画图框架
+                inv_data[name] = pd.DataFrame({'Close': pd.to_numeric(df['value'], errors='coerce')}).dropna()
+        except:
+            pass
+    return inv_data
 
 # ==========================================
 # 2.1 Multi-Market Heatmap Pipeline
@@ -215,6 +244,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     # 渲染库存柱状图
     if has_inv:
         inv_clean = inv_df.copy().dropna()
+        # 强制周频采样计算差值
         inv_weekly = inv_clean.resample('W').last().dropna()
         inv_weekly['Diff'] = inv_weekly['Close'].diff()
         
@@ -251,16 +281,15 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     return fig
 
 # ==========================================
-# 4. Bloomberg Dashboard UI (全资产展示版)
+# 4. Bloomberg Dashboard UI (全量透明版)
 # ==========================================
 with st.sidebar:
-    st.title("Macro Terminal V3.18")
+    st.title("Macro Terminal V3.19")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
     
     if page == "📊 Spreads & Ratios": 
-        # 完整保留所有利差，不惧报错
         asset_list = [
             "High-Yield Spread (OAS)", "J.P. Morgan EMBI Bond (EMB)", 
             "AAA Corporate Spread (OAS)", "BAA Corporate Spread (OAS)", 
@@ -280,7 +309,6 @@ with st.sidebar:
             "DCE Soybean Meal", "DCE Soybean Oil"
         ]
     elif page == "💱 FX & FI": 
-        # 完整保留所有主权债，让使用者明确知道哪些数据在云端断供
         asset_list = [
             "US Dollar Index (DXY)", "USD/CNH", "USD/JPY", "AUD/USD", "EUR/USD", "GBP/USD", 
             "USD/CAD", "USD/IDR", "USD/INR", "USD/TRY", "USD/MXN", "USD/BRL", "USD/ARS", "USD/ILS", "USD/HKD", 
@@ -300,9 +328,10 @@ with st.sidebar:
     
     selected_timeframe = st.radio("Resolution", ["Daily", "Weekly", "Monthly", "MAX"], horizontal=True, label_visibility="collapsed")
     if st.button("🔄 Force Sync Data", type="primary", use_container_width=True):
-        fetch_global_data.clear(); fetch_market_heatmap_raw.clear(); st.rerun()
+        fetch_global_data.clear(); fetch_market_heatmap_raw.clear(); fetch_eia_inventory.clear(); st.rerun()
         
     db = fetch_global_data()
+    eia_db = fetch_eia_inventory()
 
 # ==========================================
 # 5. Execution Layer (Master Mapping)
@@ -313,13 +342,11 @@ if db:
     def safe_sub(df1, df2): return pd.DataFrame({'Close': df1['Close'] - df2['Close']}).dropna() if df1 is not None and df2 is not None else None
     def safe_div(df1, df2): return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna() if df1 is not None and df2 is not None else None
 
-    # 防线三辅助获取函数：AkShare若空，则YF兜底
     def get_cn_bond(mk_key, yf_key):
         df = mk_df.get(mk_key)
         return df if df is not None and not df.empty else yf_df.get(yf_key)
 
     def get_data(asset_name):
-        # 预抓取中国各期限主权债保障，方便组合计算
         cn_3m = mk_df.get('China_3M_Yield')
         cn_1y = get_cn_bond('China_1Y_Yield', 'CN1YT=RR')
         cn_2y = get_cn_bond('China_2Y_Yield', 'CN2YT=RR')
@@ -348,8 +375,9 @@ if db:
             "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, "x"),
             "Bitcoin-Gold Ratio": (safe_div(yf_df.get('BTC-USD'), yf_df.get('GC=F')), "#FFD700", False, "x"),
             
-            "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513", True, "USD", fr_df.get('WCSOILUSO'), "EIA Crude Inv"),
-            "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4", True, "USD", fr_df.get('NWGUSRG'), "EIA NatGas Inv"),
+            # 【这里挂载了最新的 EIA 库存数据】
+            "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513", True, "USD", eia_db.get('Crude_Inv'), "EIA Crude Inv"),
+            "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4", True, "USD", eia_db.get('NatGas_Inv'), "EIA NatGas Inv"),
             
             "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True, "USD"), "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True, "USD"), "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True, "USD"),
             "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D", True, "USD"), "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700", True, "USD"), "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32", True, "USD"), "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True, "USD"), "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True, "USD"), "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True, "USD"),
@@ -368,10 +396,7 @@ if db:
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True, "USD"), "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True, "USD"), "Volatility Index (VIX)": (yf_df.get('^VIX'), "#FF4B4B", True, ""), "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B", True, "JPY"), "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF", True, "HKD"), "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00", True, "CNY"), "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500", True, "KRW"), "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32", True, "TWD"), "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA", True, "USD")
         }
         res = mapping.get(asset_name)
-        if res: 
-            # 确保即使没有库存数据也按格式解包
-            return res if len(res) == 6 else (res[0], res[1], res[2], res[3], None, "")
-            
+        if res: return res if len(res) == 6 else (res[0], res[1], res[2], res[3], None, "")
         tk = asset_name.split('(')[-1].strip(')') if '(' in asset_name else asset_name
         d = yf_df.get(tk)
         if d is None or d.empty: d = mk_df.get(asset_name.replace(' ', '_'))
