@@ -118,35 +118,26 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data}
 
 # ==========================================
-# 2.0 专属官方 EIA 能源局数据引擎 (V2 原生路由增强版)
+# 2.0 专属官方 EIA 能源局数据引擎 (完美回退极简稳定版)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_eia_inventory():
     EIA_KEY = 'dqVOONmTLi2944agrs9SxOGvYeNZQdjrxJDLNyE3'
     
-    # 针对 EIA V2 接口，将资产与它们对应的原生路由（Route）绑定
-    # 格式: '名称': ('路由路径', '官方 Series ID')
+    # 恢复最稳定、最直接的官方 seriesid 接口
     series_map = {
-        'Crude_Inv': ('petroleum/stoc/wstk', 'PET.WCESTUS1.W'),            # 美国原油总库存
-        'Cushing_Inv': ('petroleum/stoc/wstk', 'PET.WCSCUUS1.W'),          # 库欣原油交割地库存
-        'Gasoline_Inv': ('petroleum/stoc/wstk', 'PET.WGTSTUS1.W'),         # 汽油总库存
-        'Distillate_Inv': ('petroleum/stoc/wstk', 'PET.WDISTUS1.W'),       # 馏分油库存
-        'NatGas_Inv': ('natural-gas/stor/wkly', 'NG.NW2_EPG0_SWO_R48_BCF.W') # 天然气地下储量
+        'Crude_Inv': 'PET.WCESTUS1.W',            # 美国原油商业总库存
+        'Cushing_Inv': 'PET.WCSCUUS1.W',          # 库欣原油交割地库存
+        'Gasoline_Inv': 'PET.WGTSTUS1.W',         # 美国汽油总库存
+        'Distillate_Inv': 'PET.WDISTUS1.W',       # 美国馏分油/取暖油库存
+        'NatGas_Inv': 'NG.NW2_EPG0_SWO_R48_BCF.W' # 全美天然气地下储量
     }
     
     inv_data = {}
-    for name, (route, sid) in series_map.items():
+    for name, sid in series_map.items():
         try:
-            # 使用 V2 版本的标准 Faceted URL，彻底解决特定 Series ID 查不到的 Bug
-            url = (
-                f"https://api.eia.gov/v2/{route}/data/"
-                f"?api_key={EIA_KEY}"
-                f"&frequency=weekly"
-                f"&data[0]=value"
-                f"&facets[series][]={sid}"
-                f"&sort[0][column]=period"
-                f"&sort[0][direction]=desc"
-            )
+            # 回退到绝对不会被服务器风控拦截的 seriesid 极简路由
+            url = f"https://api.eia.gov/v2/seriesid/{sid}?api_key={EIA_KEY}"
             res = requests.get(url, timeout=10).json()
             data = res.get('response', {}).get('data', [])
             
@@ -154,7 +145,7 @@ def fetch_eia_inventory():
                 df = pd.DataFrame(data)
                 df['period'] = pd.to_datetime(df['period'])
                 df.set_index('period', inplace=True)
-                df.sort_index(inplace=True) # 按时间正序排列
+                df.sort_index(inplace=True) # 时间线正序对齐
                 inv_data[name] = pd.DataFrame({'Close': pd.to_numeric(df['value'], errors='coerce')}).dropna()
         except:
             pass
