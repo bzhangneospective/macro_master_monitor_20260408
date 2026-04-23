@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V3.19 (Sync Fix & EIA)", 
+    page_title="Macro Terminal V3.20 (Energy Master)", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -42,7 +42,6 @@ st.markdown("""
 def fetch_global_data():
     FRED_API_KEY = '2855fd24c8cbc761cd583d64f97e7004' 
     
-    # 1. YFinance 数据源 (含欧洲主权债与中国债备用T代码)
     yf_tickers = [
         '^GSPC', '^NDX', '^SOX', '^N225', '^KS11', '^HSI', '000001.SS', '^TWII',
         'GC=F', 'SI=F', 'HG=F', 'CL=F', 'NG=F', 'BZ=F', 'ZC=F', 'ZS=F', 'ZW=F', 'CT=F', 'BTC-USD',
@@ -50,7 +49,7 @@ def fetch_global_data():
         'CAD=X', 'MXN=X', 'BRL=X', 'ARS=X', 'ILS=X', 'HKD=X', 'TLT',
         'DX-Y.NYB', '^VIX', 'EMB', 'HYG', 'LQD', 'IWF', 'IWD',
         'DE10YT=RR', 'GB10YT=RR', 'FR10YT=RR', 'IT10YT=RR', 'ES10YT=RR', 'JP10YT=RR', 'JP3MT=RR',
-        'CN1YT=RR', 'CN2YT=RR', 'CN10YT=RR'
+        'CN1YT=RR', 'CN2YT=RR', 'CN10YT=RR', 'RB=F', 'HO=F'
     ]
     yf_data = {}
     try:
@@ -62,7 +61,6 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 2. FRED 数据源 (利差、基准及企业债收益率)
     fred_tickers = [
         'SOFR', 'EFFR', 'DGS1MO', 'DGS3MO', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
         'BAMLC0A1CAAA', 'BAMLC0A4CBBB', 'BAMLH0A0HYM2', 'DFII10', 'T10Y2Y', 'T10Y3M',
@@ -78,7 +76,6 @@ def fetch_global_data():
             except: pass
     except: pass
 
-    # 3. AkShare 数据源 (国内商品期货)
     ak_symbols = {
         'SHFE_Silver': 'ag0', 'SHFE_Gold': 'au0', 'SHFE_Copper': 'cu0', 'SHFE_Aluminum': 'al0', 
         'SHFE_Zinc': 'zn0', 'SHFE_Nickel': 'ni0', 'SHFE_Rebar': 'rb0',
@@ -95,7 +92,6 @@ def fetch_global_data():
                 cn_data[name] = df[['Open', 'High', 'Low', 'Close']].apply(pd.to_numeric, errors='coerce').dropna(how='all').ffill().dropna()
         except: pass
         
-    # 4. 中国国债双重防线
     china_bond_success = False
     try:
         end_date_str = datetime.date.today().strftime("%Y%m%d")
@@ -128,8 +124,11 @@ def fetch_global_data():
 def fetch_eia_inventory():
     EIA_KEY = 'dqVOONmTLi2944agrs9SxOGvYeNZQdjrxJDLNyE3'
     series_map = {
-        'Crude_Inv': 'PET.WCESTUS1.W',
-        'NatGas_Inv': 'NG.NW2_EPG0_SWO_R48_BCF.W'
+        'Crude_Inv': 'PET.WCESTUS1.W',            
+        'Cushing_Inv': 'PET.WCSCUUS1.W',          
+        'Gasoline_Inv': 'PET.WGTSTUS1.W',         
+        'Distillate_Inv': 'PET.WDISTUS1.W',       
+        'NatGas_Inv': 'NG.NW2_EPG0_SWO_R48_BCF.W' 
     }
     inv_data = {}
     for name, sid in series_map.items():
@@ -187,7 +186,7 @@ def calculate_heatmap_performance(raw_data, hierarchy, lookback, market_type):
     return pd.DataFrame(rows)
 
 # ==========================================
-# 3. Charting Factory (彻底修复时区不同步问题)
+# 3. Charting Factory
 # ==========================================
 def resample_data(df, timeframe):
     if df.empty or timeframe == "Daily": return df
@@ -200,10 +199,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     if df_raw is None or df_raw.empty: return go.Figure()
         
     df = resample_data(df_raw.copy(), timeframe)
-    
-    # 【修复 1】：强制剥离主图时间轴的时区
-    if df.index.tz is not None:
-        df.index = df.index.tz_localize(None)
+    if df.index.tz is not None: df.index = df.index.tz_localize(None)
         
     if timeframe == "Daily" and len(df) > 1500: df = df.iloc[-1500:]
         
@@ -228,12 +224,10 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     price_display = f"{last_price:,.2f} {unit}" if unit != "%" else f"{last_price:.4f}%"
 
     mom_val = 0; mom_color = "#FFFFFF"
-    
     if show_ma:
         df['EMA20'] = df[close_col].ewm(span=20, adjust=False).mean()
         df['EMA60'] = df[close_col].ewm(span=60, adjust=False).mean()
         df['EMA120'] = df[close_col].ewm(span=120, adjust=False).mean()
-        
         mom_val = (((df[close_col].ewm(span=9).mean() - df[close_col].ewm(span=26).mean()) / df[close_col].ewm(span=26).mean()) * 100).iloc[-1]
         mom_color = "#00CC96" if mom_val >= 0 else "#FF4B4B"
         
@@ -241,13 +235,9 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         fig.add_trace(go.Scattergl(x=df.index, y=df['EMA60'], mode='lines', line=dict(color='#FF4B4B', width=1.3), showlegend=False), row=row_idx, col=col_idx)
         fig.add_trace(go.Scattergl(x=df.index, y=df['EMA120'], mode='lines', line=dict(color='#AB63FA', width=1.3, dash='dot'), showlegend=False), row=row_idx, col=col_idx)
 
-    # 渲染库存柱状图
     if has_inv:
         inv_clean = inv_df.copy().dropna()
-        
-        # 【修复 2】：强制剥离副图时间轴的时区，绝对对齐
-        if inv_clean.index.tz is not None:
-            inv_clean.index = inv_clean.index.tz_localize(None)
+        if inv_clean.index.tz is not None: inv_clean.index = inv_clean.index.tz_localize(None)
             
         inv_weekly = inv_clean.resample('W').last().dropna()
         inv_weekly['Diff'] = inv_weekly['Close'].diff()
@@ -256,14 +246,11 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         fig.add_trace(go.Bar(x=inv_weekly.index, y=inv_weekly['Diff'], marker_color=bar_colors, name=inv_name, showlegend=False), row=2, col=1)
         fig.update_yaxes(title_text="WoW Change", title_font=dict(size=10, color="gray"), tickfont=dict(size=10), row=2, col=1, showgrid=True, gridcolor='rgba(128,128,128,0.1)')
 
-    # 视窗缩放绑定
     if len(df) > 10 and timeframe != "MAX":
         last_df = df.iloc[-min(len(df), 180):]
         y_min = last_df['Low'].min() if has_ohlc else last_df[close_col].min()
         y_max = last_df['High'].max() if has_ohlc else last_df[close_col].max()
-        
         if has_inv:
-            # 【修复 3】：去除子图限制，全局绑定共享 X 轴的锚点缩放
             fig.update_xaxes(range=[last_df.index[0], last_df.index[-1]])
             fig.update_yaxes(range=[y_min*0.95, y_max*1.05], row=1, col=1)
         else:
@@ -282,14 +269,13 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
         hovermode="x unified", dragmode='pan', uirevision=title+timeframe
     )
     if has_inv: fig.update_xaxes(showticklabels=False, row=1, col=1)
-        
     return fig
 
 # ==========================================
-# 4. Bloomberg Dashboard UI (全量资产展示版)
+# 4. Bloomberg Dashboard UI
 # ==========================================
 with st.sidebar:
-    st.title("Macro Terminal V3.19")
+    st.title("Macro Terminal V3.20")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
@@ -306,8 +292,10 @@ with st.sidebar:
         ]
     elif page == "⚒️ Commodity": 
         asset_list = [
-            "Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", "WTI Crude (CL=F)", "Brent Crude (BZ=F)", 
-            "Natural Gas (NG=F)", "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", 
+            "Gold (GC=F)", "Silver (SI=F)", "Copper (HG=F)", 
+            "WTI Crude (CL=F)", "WTI Crude (Cushing)", "Brent Crude (BZ=F)", 
+            "Gasoline (RB=F)", "Heating Oil (HO=F)", "Natural Gas (NG=F)", 
+            "Corn (ZC=F)", "Soybeans (ZS=F)", "Wheat (ZW=F)", "Cotton (CT=F)", 
             "Bitcoin (BTC-USD)", 
             "SHFE Gold", "SHFE Silver", "SHFE Copper", "SHFE Aluminum", "SHFE Zinc", "SHFE Nickel", "SHFE Rebar", 
             "DCE Iron Ore", "DCE Coke", "ZCE Cotton", "ZCE PTA", "ZCE Methanol", "ZCE Sugar", 
@@ -323,14 +311,10 @@ with st.sidebar:
             "Germany 10Y Bond", "UK 10Y Bond", "France 10Y Bond", "Italy 10Y Bond", "Spain 10Y Bond", "Japan 10Y Bond"
         ]
     elif page == "📈 Equity Markets": 
-        asset_list = [
-            "S&P 500 (^GSPC)", "Nasdaq 100 (^NDX)", "Volatility Index (VIX)", "Nikkei 225 (^N225)", 
-            "Hang Seng (^HSI)", "SSE Composite", "KOSPI (^KS11)", "Taiwan (^TWII)", "Semiconductor (^SOX)"
-        ]
+        asset_list = ["S&P 500 (^GSPC)", "Nasdaq 100 (^NDX)", "Volatility Index (VIX)", "Nikkei 225 (^N225)", "Hang Seng (^HSI)", "SSE Composite", "KOSPI (^KS11)", "Taiwan (^TWII)", "Semiconductor (^SOX)"]
         
     selected_asset = st.radio("🎯 Select Asset", asset_list)
     st.markdown("---")
-    
     selected_timeframe = st.radio("Resolution", ["Daily", "Weekly", "Monthly", "MAX"], horizontal=True, label_visibility="collapsed")
     if st.button("🔄 Force Sync Data", type="primary", use_container_width=True):
         fetch_global_data.clear(); fetch_market_heatmap_raw.clear(); fetch_eia_inventory.clear(); st.rerun()
@@ -343,7 +327,6 @@ with st.sidebar:
 # ==========================================
 if db:
     yf_df, fr_df, mk_df = db['yf'], db['fred'], db['mock']
-    
     def safe_sub(df1, df2): return pd.DataFrame({'Close': df1['Close'] - df2['Close']}).dropna() if df1 is not None and df2 is not None else None
     def safe_div(df1, df2): return pd.DataFrame({'Close': df1['Close'] / df2['Close']}).dropna() if df1 is not None and df2 is not None else None
 
@@ -358,51 +341,28 @@ if db:
         cn_10y = get_cn_bond('China_10Y_Yield', 'CN10YT=RR')
         
         mapping = {
-            "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False, "%"),
-            "J.P. Morgan EMBI Bond (EMB)": (yf_df.get('EMB'), "#DC143C", True, "USD"),
-            "AAA Corporate Spread (OAS)": (fr_df.get('BAMLC0A1CAAA'), "#FFA500", False, "%"),
-            "BAA Corporate Spread (OAS)": (fr_df.get('BAMLC0A4CBBB'), "#FFD700", False, "%"),
-            "AAA vs 10Y Treasury Spread": (safe_sub(fr_df.get('BAMLC0A1CAAAEY'), fr_df.get('DGS10')), "#FFA500", False, "%"),
-            "BAA vs 10Y Treasury Spread": (safe_sub(fr_df.get('BAMLC0A4CBBBEY'), fr_df.get('DGS10')), "#FFD700", False, "%"),
-            "High-Yield vs IG Ratio (HYG/LQD)": (safe_div(yf_df.get('HYG'), yf_df.get('LQD')), "#DC143C", False, "Ratio"),
-            "Russell 1000 Growth vs Value": (safe_div(yf_df.get('IWF'), yf_df.get('IWD')), "#00CC96", False, "Ratio"),
-            "10Y-2Y Treasury Spread": (fr_df.get('T10Y2Y'), "#FF4B4B", False, "%"), 
-            "10Y-3M Treasury Spread": (fr_df.get('T10Y3M'), "#DC143C", False, "%"), 
-            "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False, "%"),
-            
-            "China-US 10Y Yield Spread": (safe_sub(cn_10y, fr_df.get('DGS10')), "#FF8C00", False, "%"),
-            "China 10Y-3M Yield Spread": (safe_sub(cn_10y, cn_3m), "#DC143C", False, "%"),
-            "China 10Y-2Y Yield Spread": (safe_sub(cn_10y, cn_2y), "#00BFFF", False, "%"),
-            "China 10Y-1Y Yield Spread": (safe_sub(cn_10y, cn_1y), "#1E90FF", False, "%"),
-            
-            "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, "x"),
-            "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, "x"),
-            "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, "x"),
-            "Bitcoin-Gold Ratio": (safe_div(yf_df.get('BTC-USD'), yf_df.get('GC=F')), "#FFD700", False, "x"),
+            "High-Yield Spread (OAS)": (fr_df.get('BAMLH0A0HYM2'), "#FF4B4B", False, "%"), "J.P. Morgan EMBI Bond (EMB)": (yf_df.get('EMB'), "#DC143C", True, "USD"), "AAA Corporate Spread (OAS)": (fr_df.get('BAMLC0A1CAAA'), "#FFA500", False, "%"), "BAA Corporate Spread (OAS)": (fr_df.get('BAMLC0A4CBBB'), "#FFD700", False, "%"), "AAA vs 10Y Treasury Spread": (safe_sub(fr_df.get('BAMLC0A1CAAAEY'), fr_df.get('DGS10')), "#FFA500", False, "%"), "BAA vs 10Y Treasury Spread": (safe_sub(fr_df.get('BAMLC0A4CBBBEY'), fr_df.get('DGS10')), "#FFD700", False, "%"),
+            "High-Yield vs IG Ratio (HYG/LQD)": (safe_div(yf_df.get('HYG'), yf_df.get('LQD')), "#DC143C", False, "Ratio"), "Russell 1000 Growth vs Value": (safe_div(yf_df.get('IWF'), yf_df.get('IWD')), "#00CC96", False, "Ratio"), "10Y-2Y Treasury Spread": (fr_df.get('T10Y2Y'), "#FF4B4B", False, "%"), "10Y-3M Treasury Spread": (fr_df.get('T10Y3M'), "#DC143C", False, "%"), "SOFR-EFFR Premium": (safe_sub(fr_df.get('SOFR'), fr_df.get('EFFR')), "#00CC96", False, "%"),
+            "China-US 10Y Yield Spread": (safe_sub(cn_10y, fr_df.get('DGS10')), "#FF8C00", False, "%"), "China 10Y-3M Yield Spread": (safe_sub(cn_10y, cn_3m), "#DC143C", False, "%"), "China 10Y-2Y Yield Spread": (safe_sub(cn_10y, cn_2y), "#00BFFF", False, "%"), "China 10Y-1Y Yield Spread": (safe_sub(cn_10y, cn_1y), "#1E90FF", False, "%"),
+            "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, "x"), "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, "x"), "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, "x"), "Bitcoin-Gold Ratio": (safe_div(yf_df.get('BTC-USD'), yf_df.get('GC=F')), "#FFD700", False, "x"),
             
             "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513", True, "USD", eia_db.get('Crude_Inv'), "EIA Crude Inv"),
+            "WTI Crude (Cushing)": (yf_df.get('CL=F'), "#A0522D", True, "USD", eia_db.get('Cushing_Inv'), "EIA Cushing Inv"),
+            "Gasoline (RB=F)": (yf_df.get('RB=F'), "#FF6347", True, "USD", eia_db.get('Gasoline_Inv'), "EIA Gasoline Inv"),
+            "Heating Oil (HO=F)": (yf_df.get('HO=F'), "#8A2BE2", True, "USD", eia_db.get('Distillate_Inv'), "EIA Distillate Inv"),
             "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4", True, "USD", eia_db.get('NatGas_Inv'), "EIA NatGas Inv"),
             
-            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True, "USD"), "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True, "USD"), "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True, "USD"),
-            "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D", True, "USD"), "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700", True, "USD"), "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32", True, "USD"), "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True, "USD"), "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True, "USD"), "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True, "USD"),
-            
+            "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True, "USD"), "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True, "USD"), "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True, "USD"), "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D", True, "USD"), "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700", True, "USD"), "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32", True, "USD"), "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True, "USD"), "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True, "USD"), "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True, "USD"),
             "SHFE Gold": (mk_df.get('SHFE_Gold'), "#FFD700", True, "CNY"), "SHFE Copper": (mk_df.get('SHFE_Copper'), "#B87333", True, "CNY"), "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0", True, "CNY"), "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9", True, "CNY"), "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899", True, "CNY"), "SHFE Nickel": (mk_df.get('SHFE_Nickel'), "#708090", True, "CNY"), "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969", True, "CNY"),
             "DCE Iron Ore": (mk_df.get('DCE_IronOre'), "#8B4513", True, "CNY"), "DCE Coke": (mk_df.get('DCE_Coke'), "#2F4F4F", True, "CNY"), "ZCE Cotton": (mk_df.get('ZCE_Cotton'), "#FFFFFF", True, "CNY"), "ZCE PTA": (mk_df.get('ZCE_PTA'), "#483D8B", True, "CNY"), "ZCE Methanol": (mk_df.get('ZCE_Methanol'), "#4B0082", True, "CNY"), "ZCE Sugar": (mk_df.get('ZCE_Sugar'), "#F8F8FF", True, "CNY"), "DCE Soybean Meal": (mk_df.get('DCE_SoybeanMeal'), "#9ACD32", True, "CNY"), "DCE Soybean Oil": (mk_df.get('DCE_SoybeanOil'), "#DAA520", True, "CNY"),
-            
             "US Dollar Index (DXY)": (yf_df.get('DX-Y.NYB'), "#1E90FF", True, ""), "USD/CNH": (yf_df.get('USDCNY=X'), "#FF4B4B", True, ""), "USD/JPY": (yf_df.get('JPY=X'), "#AB63FA", True, ""), "AUD/USD": (yf_df.get('AUDUSD=X'), "#00CC96", True, ""), "EUR/USD": (yf_df.get('EURUSD=X'), "#1E90FF", True, ""), "GBP/USD": (yf_df.get('GBPUSD=X'), "#8A2BE2", True, ""), "USD/CAD": (yf_df.get('CAD=X'), "#DC143C", True, ""), "USD/IDR": (yf_df.get('IDR=X'), "#32CD32", True, ""), "USD/INR": (yf_df.get('INR=X'), "#00BFFF", True, ""), "USD/TRY": (yf_df.get('TRY=X'), "#FF4B4B", True, ""), "USD/MXN": (yf_df.get('MXN=X'), "#DC143C", True, ""), "USD/BRL": (yf_df.get('BRL=X'), "#32CD32", True, ""), "USD/ARS": (yf_df.get('ARS=X'), "#8A2BE2", True, ""), "USD/ILS": (yf_df.get('ILS=X'), "#00BFFF", True, ""), "USD/HKD": (yf_df.get('HKD=X'), "#FFD700", True, ""),
-            
             "US 1M Yield": (fr_df.get('DGS1MO'), "#A9A9A9", True, "%"), "US 3M Yield": (fr_df.get('DGS3MO'), "#808080", True, "%"), "US 2Y Yield": (fr_df.get('DGS2'), "#696969", True, "%"), "US 5Y Yield": (fr_df.get('DGS5'), "#696969", True, "%"), "US 10Y Yield": (fr_df.get('DGS10'), "#8B0000", True, "%"), "US 30Y Yield": (fr_df.get('DGS30'), "#800000", True, "%"), "US 10Y Real Yield": (fr_df.get('DFII10'), "#00CC96", True, "%"), "US Long Treas (TLT)": (yf_df.get('TLT'), "#4682B4", True, "USD"),
-            
             "China 3M Yield": (cn_3m, "#808080", True, "%"), "China 1Y Yield": (cn_1y, "#FFD700", True, "%"), "China 2Y Yield": (cn_2y, "#FF6347", True, "%"), "China 10Y Yield": (cn_10y, "#FF4B4B", True, "%"),
-            
             "Germany 10Y Bond": (yf_df.get('DE10YT=RR'), "#00CC96", True, "%"), "UK 10Y Bond": (yf_df.get('GB10YT=RR'), "#8A2BE2", True, "%"), "France 10Y Bond": (yf_df.get('FR10YT=RR'), "#1E90FF", True, "%"), "Italy 10Y Bond": (yf_df.get('IT10YT=RR'), "#FF4B4B", True, "%"), "Spain 10Y Bond": (yf_df.get('ES10YT=RR'), "#FFA500", True, "%"), "Japan 10Y Bond": (yf_df.get('JP10YT=RR'), "#FFC0CB", True, "%"),
-            
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True, "USD"), "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True, "USD"), "Volatility Index (VIX)": (yf_df.get('^VIX'), "#FF4B4B", True, ""), "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B", True, "JPY"), "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF", True, "HKD"), "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00", True, "CNY"), "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500", True, "KRW"), "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32", True, "TWD"), "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA", True, "USD")
         }
         res = mapping.get(asset_name)
-        if res: 
-            return res if len(res) == 6 else (res[0], res[1], res[2], res[3], None, "")
-            
+        if res: return res if len(res) == 6 else (res[0], res[1], res[2], res[3], None, "")
         tk = asset_name.split('(')[-1].strip(')') if '(' in asset_name else asset_name
         d = yf_df.get(tk)
         if d is None or d.empty: d = mk_df.get(asset_name.replace(' ', '_'))
