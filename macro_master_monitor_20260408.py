@@ -199,12 +199,10 @@ def resample_data(df, timeframe):
         return df.resample(rule).agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).dropna()
     return df.resample(rule).last().dropna()
 
-def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, unit="", inv_df=None, inv_name=""):
+def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, unit="", inv_df=None, inv_name="", inv_unit=""):
     if df_raw is None or df_raw.empty: return go.Figure()
         
     df = resample_data(df_raw.copy(), timeframe)
-    
-    # 【时区同步修复】剥离主图价格时间轴时区
     if df.index.tz is not None: df.index = df.index.tz_localize(None)
         
     if timeframe == "Daily" and len(df) > 1500: df = df.iloc[-1500:]
@@ -243,16 +241,18 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 
     if has_inv:
         inv_clean = inv_df.copy().dropna()
-        
-        # 【时区同步修复】剥离副图库存时间轴时区，绝对对齐
         if inv_clean.index.tz is not None: inv_clean.index = inv_clean.index.tz_localize(None)
             
         inv_weekly = inv_clean.resample('W').last().dropna()
         inv_weekly['Diff'] = inv_weekly['Close'].diff()
         
         bar_colors = ['#FF4B4B' if val > 0 else '#00CC96' for val in inv_weekly['Diff']]
-        fig.add_trace(go.Bar(x=inv_weekly.index, y=inv_weekly['Diff'], marker_color=bar_colors, name=inv_name, showlegend=False), row=2, col=1)
-        fig.update_yaxes(title_text="WoW Change", title_font=dict(size=10, color="gray"), tickfont=dict(size=10), row=2, col=1, showgrid=True, gridcolor='rgba(128,128,128,0.1)')
+        hover_template = f"%{{y:,.2f}} {inv_unit}" if inv_unit else "%{y:,.2f}"
+        
+        fig.add_trace(go.Bar(x=inv_weekly.index, y=inv_weekly['Diff'], marker_color=bar_colors, name=inv_name, hovertemplate=hover_template, showlegend=False), row=2, col=1)
+        
+        y_title = f"WoW Change ({inv_unit})" if inv_unit else "WoW Change"
+        fig.update_yaxes(title_text=y_title, title_font=dict(size=10, color="gray"), tickfont=dict(size=10), row=2, col=1, showgrid=True, gridcolor='rgba(128,128,128,0.1)')
 
     if len(df) > 10 and timeframe != "MAX":
         last_df = df.iloc[-min(len(df), 180):]
@@ -266,7 +266,10 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 
     title_str = f"<b>{title}</b> &nbsp;&nbsp; <span style='font-size:22px;'>{price_display}</span>"
     if show_ma: title_str += f" &nbsp;&nbsp; <span style='color:{mom_color}; font-size:14px;'>PPO: {mom_val:.2f}%</span>"
-    if has_inv: title_str += f" &nbsp;&nbsp; <span style='color:gray; font-size:12px;'>+ {inv_name}</span>"
+    
+    if has_inv: 
+        unit_display = f" ({inv_unit})" if inv_unit else ""
+        title_str += f" &nbsp;&nbsp; <span style='color:gray; font-size:12px;'>+ {inv_name}{unit_display}</span>"
         
     fig.update_layout(
         height=470, margin=dict(l=10, r=10, t=60, b=10), template="plotly_dark", 
@@ -354,11 +357,11 @@ if db:
             "China-US 10Y Yield Spread": (safe_sub(cn_10y, fr_df.get('DGS10')), "#FF8C00", False, "%"), "China 10Y-3M Yield Spread": (safe_sub(cn_10y, cn_3m), "#DC143C", False, "%"), "China 10Y-2Y Yield Spread": (safe_sub(cn_10y, cn_2y), "#00BFFF", False, "%"), "China 10Y-1Y Yield Spread": (safe_sub(cn_10y, cn_1y), "#1E90FF", False, "%"),
             "Gold-Silver Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('SI=F')), "#AB63FA", False, "x"), "Gold-WTI Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('CL=F')), "#00BFFF", False, "x"), "Gold-Copper Ratio": (safe_div(yf_df.get('GC=F'), yf_df.get('HG=F')), "#8A2BE2", False, "x"), "Bitcoin-Gold Ratio": (safe_div(yf_df.get('BTC-USD'), yf_df.get('GC=F')), "#FFD700", False, "x"),
             
-            "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513", True, "USD", eia_db.get('Crude_Inv'), "EIA Crude Inv"),
-            "WTI Crude (Cushing)": (yf_df.get('CL=F'), "#A0522D", True, "USD", eia_db.get('Cushing_Inv'), "EIA Cushing Inv"),
-            "Gasoline (RB=F)": (yf_df.get('RB=F'), "#FF6347", True, "USD", eia_db.get('Gasoline_Inv'), "EIA Gasoline Inv"),
-            "Heating Oil (HO=F)": (yf_df.get('HO=F'), "#8A2BE2", True, "USD", eia_db.get('Distillate_Inv'), "EIA Distillate Inv"),
-            "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4", True, "USD", eia_db.get('NatGas_Inv'), "EIA NatGas Inv"),
+            "WTI Crude (CL=F)": (yf_df.get('CL=F'), "#8B4513", True, "USD", eia_db.get('Crude_Inv'), "EIA Crude Inv", "k bbl"),
+            "WTI Crude (Cushing)": (yf_df.get('CL=F'), "#A0522D", True, "USD", eia_db.get('Cushing_Inv'), "EIA Cushing Inv", "k bbl"),
+            "Gasoline (RB=F)": (yf_df.get('RB=F'), "#FF6347", True, "USD", eia_db.get('Gasoline_Inv'), "EIA Gasoline Inv", "k bbl"),
+            "Heating Oil (HO=F)": (yf_df.get('HO=F'), "#8A2BE2", True, "USD", eia_db.get('Distillate_Inv'), "EIA Distillate Inv", "k bbl"),
+            "Natural Gas (NG=F)": (yf_df.get('NG=F'), "#4682B4", True, "USD", eia_db.get('NatGas_Inv'), "EIA NatGas Inv", "Bcf"),
             
             "Gold (GC=F)": (yf_df.get('GC=F'), "#FFD700", True, "USD"), "Silver (SI=F)": (yf_df.get('SI=F'), "#C0C0C0", True, "USD"), "Copper (HG=F)": (yf_df.get('HG=F'), "#B87333", True, "USD"), "Brent Crude (BZ=F)": (yf_df.get('BZ=F'), "#A0522D", True, "USD"), "Corn (ZC=F)": (yf_df.get('ZC=F'), "#FFD700", True, "USD"), "Soybeans (ZS=F)": (yf_df.get('ZS=F'), "#9ACD32", True, "USD"), "Wheat (ZW=F)": (yf_df.get('ZW=F'), "#F5DEB3", True, "USD"), "Cotton (CT=F)": (yf_df.get('CT=F'), "#FFFAFA", True, "USD"), "Bitcoin (BTC-USD)": (yf_df.get('BTC-USD'), "#FF8C00", True, "USD"),
             "SHFE Gold": (mk_df.get('SHFE_Gold'), "#FFD700", True, "CNY"), "SHFE Copper": (mk_df.get('SHFE_Copper'), "#B87333", True, "CNY"), "SHFE Silver": (mk_df.get('SHFE_Silver'), "#C0C0C0", True, "CNY"), "SHFE Aluminum": (mk_df.get('SHFE_Aluminum'), "#A9A9A9", True, "CNY"), "SHFE Zinc": (mk_df.get('SHFE_Zinc'), "#778899", True, "CNY"), "SHFE Nickel": (mk_df.get('SHFE_Nickel'), "#708090", True, "CNY"), "SHFE Rebar": (mk_df.get('SHFE_Rebar'), "#696969", True, "CNY"),
@@ -370,20 +373,20 @@ if db:
             "S&P 500 (^GSPC)": (yf_df.get('^GSPC'), "#00CC96", True, "USD"), "Nasdaq 100 (^NDX)": (yf_df.get('^NDX'), "#1E90FF", True, "USD"), "Volatility Index (VIX)": (yf_df.get('^VIX'), "#FF4B4B", True, ""), "Nikkei 225 (^N225)": (yf_df.get('^N225'), "#FF4B4B", True, "JPY"), "Hang Seng (^HSI)": (yf_df.get('^HSI'), "#00BFFF", True, "HKD"), "SSE Composite": (yf_df.get('000001.SS'), "#FF8C00", True, "CNY"), "KOSPI (^KS11)": (yf_df.get('^KS11'), "#FFA500", True, "KRW"), "Taiwan (^TWII)": (yf_df.get('^TWII'), "#32CD32", True, "TWD"), "Semiconductor (^SOX)": (yf_df.get('^SOX'), "#AB63FA", True, "USD")
         }
         res = mapping.get(asset_name)
-        if res: return res if len(res) == 6 else (res[0], res[1], res[2], res[3], None, "")
+        if res: return res if len(res) == 7 else (res[0], res[1], res[2], res[3], None, "", "")
         tk = asset_name.split('(')[-1].strip(')') if '(' in asset_name else asset_name
         d = yf_df.get(tk)
         if d is None or d.empty: d = mk_df.get(asset_name.replace(' ', '_'))
-        return (d, "#1E90FF", False, "", None, "")
+        return (d, "#1E90FF", False, "", None, "", "")
 
-    target_df, color, use_ma, unit, inv_df, inv_name = get_data(selected_asset)
+    target_df, color, use_ma, unit, inv_df, inv_name, inv_unit = get_data(selected_asset)
     plot_config = {'scrollZoom': True, 'displayModeBar': False, 'showTips': False, 'displaylogo': False}
     
     if page == "📈 Equity Markets":
         tab1, tab2 = st.tabs(["🎯 Asset Analysis", "📊 Sector X-Ray (Heatmap)"])
         with tab1:
             if target_df is not None and not target_df.empty:
-                st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit, inv_df=inv_df, inv_name=inv_name), use_container_width=True, config=plot_config)
+                st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit, inv_df=inv_df, inv_name=inv_name, inv_unit=inv_unit), use_container_width=True, config=plot_config)
             else:
                 st.warning(f"🚨 API 暂时未返回 {selected_asset} 的数据，请尝试点击左侧 'Force Sync Data' 刷新。")
         with tab2:
@@ -416,6 +419,6 @@ if db:
                     st.plotly_chart(fig_p, use_container_width=False, config={'displayModeBar': False})
     else:
         if target_df is not None and not target_df.empty:
-            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit, inv_df=inv_df, inv_name=inv_name), use_container_width=True, config=plot_config)
+            st.plotly_chart(draw_bloomberg_chart(target_df, selected_asset, color, selected_timeframe, show_ma=use_ma, unit=unit, inv_df=inv_df, inv_name=inv_name, inv_unit=inv_unit), use_container_width=True, config=plot_config)
         else:
             st.warning(f"🚨 API 暂时未返回 {selected_asset} 的数据，请尝试点击左侧 'Force Sync Data' 刷新。")
