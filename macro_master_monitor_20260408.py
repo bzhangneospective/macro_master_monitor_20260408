@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 # 1. Page Configuration & Professional CSS
 # ==========================================
 st.set_page_config(
-    page_title="Macro Terminal V3.20 (Energy Master)", 
+    page_title="Macro Terminal V3.21 (Ultimate Master)", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -118,16 +118,15 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data}
 
 # ==========================================
-# 2.0 专属官方 EIA 能源局数据引擎 (库欣 ID 终极修复版)
+# 2.0 专属官方 EIA 能源局数据引擎 (完美修复版)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_eia_inventory():
     EIA_KEY = 'dqVOONmTLi2944agrs9SxOGvYeNZQdjrxJDLNyE3'
     
-    # 恢复最稳定、最直接的官方 seriesid 接口
     series_map = {
         'Crude_Inv': 'PET.WCESTUS1.W',                 # 美国原油商业总库存
-        'Cushing_Inv': 'PET.W_EPC0_SAX_YCUOK_MBBL.W',  # 【核心修复】库欣原油交割地真实官方 ID
+        'Cushing_Inv': 'PET.W_EPC0_SAX_YCUOK_MBBL.W',  # 【库欣修复】官方真实ID
         'Gasoline_Inv': 'PET.WGTSTUS1.W',              # 美国汽油总库存
         'Distillate_Inv': 'PET.WDISTUS1.W',            # 美国馏分油/取暖油库存
         'NatGas_Inv': 'NG.NW2_EPG0_SWO_R48_BCF.W'      # 全美天然气地下储量
@@ -136,7 +135,6 @@ def fetch_eia_inventory():
     inv_data = {}
     for name, sid in series_map.items():
         try:
-            # 绝对不会被服务器风控拦截的 seriesid 极简路由
             url = f"https://api.eia.gov/v2/seriesid/{sid}?api_key={EIA_KEY}"
             res = requests.get(url, timeout=10).json()
             data = res.get('response', {}).get('data', [])
@@ -145,7 +143,7 @@ def fetch_eia_inventory():
                 df = pd.DataFrame(data)
                 df['period'] = pd.to_datetime(df['period'])
                 df.set_index('period', inplace=True)
-                df.sort_index(inplace=True) # 时间线正序对齐
+                df.sort_index(inplace=True)
                 inv_data[name] = pd.DataFrame({'Close': pd.to_numeric(df['value'], errors='coerce')}).dropna()
         except:
             pass
@@ -205,6 +203,8 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
     if df_raw is None or df_raw.empty: return go.Figure()
         
     df = resample_data(df_raw.copy(), timeframe)
+    
+    # 【时区同步修复】剥离主图价格时间轴时区
     if df.index.tz is not None: df.index = df.index.tz_localize(None)
         
     if timeframe == "Daily" and len(df) > 1500: df = df.iloc[-1500:]
@@ -243,6 +243,8 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 
     if has_inv:
         inv_clean = inv_df.copy().dropna()
+        
+        # 【时区同步修复】剥离副图库存时间轴时区，绝对对齐
         if inv_clean.index.tz is not None: inv_clean.index = inv_clean.index.tz_localize(None)
             
         inv_weekly = inv_clean.resample('W').last().dropna()
@@ -281,7 +283,7 @@ def draw_bloomberg_chart(df_raw, title, base_color, timeframe, show_ma=True, uni
 # 4. Bloomberg Dashboard UI
 # ==========================================
 with st.sidebar:
-    st.title("Macro Terminal V3.20")
+    st.title("Macro Terminal V3.21")
     st.markdown("---")
     
     page = st.selectbox("📂 Category", ["📊 Spreads & Ratios", "⚒️ Commodity", "💱 FX & FI", "📈 Equity Markets"])
