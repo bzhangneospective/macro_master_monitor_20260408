@@ -118,7 +118,7 @@ def fetch_global_data():
     return {"yf": yf_data, "fred": fred_data, "mock": cn_data}
 
 # ==========================================
-# 2.0 专属官方 EIA 能源局数据引擎 (完美回退极简稳定版)
+# 2.0 专属官方 EIA 能源局数据引擎 (库欣 ID 终极修复版)
 # ==========================================
 @st.cache_data(ttl=3600 * 12, show_spinner=False)
 def fetch_eia_inventory():
@@ -126,17 +126,17 @@ def fetch_eia_inventory():
     
     # 恢复最稳定、最直接的官方 seriesid 接口
     series_map = {
-        'Crude_Inv': 'PET.WCESTUS1.W',            # 美国原油商业总库存
-        'Cushing_Inv': 'PET.WCSCUUS1.W',          # 库欣原油交割地库存
-        'Gasoline_Inv': 'PET.WGTSTUS1.W',         # 美国汽油总库存
-        'Distillate_Inv': 'PET.WDISTUS1.W',       # 美国馏分油/取暖油库存
-        'NatGas_Inv': 'NG.NW2_EPG0_SWO_R48_BCF.W' # 全美天然气地下储量
+        'Crude_Inv': 'PET.WCESTUS1.W',                 # 美国原油商业总库存
+        'Cushing_Inv': 'PET.W_EPC0_SAX_YCUOK_MBBL.W',  # 【核心修复】库欣原油交割地真实官方 ID
+        'Gasoline_Inv': 'PET.WGTSTUS1.W',              # 美国汽油总库存
+        'Distillate_Inv': 'PET.WDISTUS1.W',            # 美国馏分油/取暖油库存
+        'NatGas_Inv': 'NG.NW2_EPG0_SWO_R48_BCF.W'      # 全美天然气地下储量
     }
     
     inv_data = {}
     for name, sid in series_map.items():
         try:
-            # 回退到绝对不会被服务器风控拦截的 seriesid 极简路由
+            # 绝对不会被服务器风控拦截的 seriesid 极简路由
             url = f"https://api.eia.gov/v2/seriesid/{sid}?api_key={EIA_KEY}"
             res = requests.get(url, timeout=10).json()
             data = res.get('response', {}).get('data', [])
